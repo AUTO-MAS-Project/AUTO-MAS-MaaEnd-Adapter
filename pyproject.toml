@@ -20,16 +20,15 @@ dependencies = [
 
 [project.urls]
 Changelog = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter/blob/main/CHANGELOG.md"
-Repository = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter"
-Issues = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter/issues"
 Documentation = "https://doc.auto-mas.top/developer/"
 Homepage = "https://auto-mas.top"
-
+Issues = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter/issues"
+Repository = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter"
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib"]
 
 [tool.ruff]
 target-version = "py312"
