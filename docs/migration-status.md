@@ -26,9 +26,12 @@
 
 ### 1.1 SDK 边界与 compat 层
 
-插件代码只 import `auto_mas_core` / `auto_mas_core.host.*` 和插件自己的模块。下面这些宿主能力
-SDK 5.9.0b1 没有导出，先放在 `src/maaend_adapter/compat/` 里按需转发；每个文件都写了目标模块与
-待删条件，主仓 SDK 补齐后逐个删除并改回 SDK 导入：
+插件代码只 import `auto_mas_core` / `auto_mas_core.host.*`、MaaFW 适配器拆出的库和插件自己的模块。
+MaaFramework 的 `interface.json` 解析、任务选项、预任务计划与 MXU 标签已经由 `auto-mas-maafw-interface`
+库提供（`pyproject.toml` 已依赖），不再走宿主 `app.task.MaaFW`，也不进 compat。
+
+下面这些宿主能力 SDK 5.9.0b1 还没有导出，也没有对应的 MaaFW 库，先放在
+`src/maaend_adapter/compat/` 里按需转发；每个文件都写了目标模块与待删条件：
 
 | compat 文件 | 转发目标 | 用途 |
 | --- | --- | --- |
@@ -39,7 +42,14 @@ SDK 5.9.0b1 没有导出，先放在 `src/maaend_adapter/compat/` 里按需转�
 | `error_screenshot.py` | `app.tools.common.error_screenshot` | 失败截图存档 |
 | `game_window.py` | `app.utils.common.game_window` | 窗口查找、激活、截图 |
 | `zip_range.py` / `zip_delta.py` | `app.utils.common.zip_*` | 增量包重组与补丁 |
-| `maafw_*.py` | `app.task.MaaFW.tools.*` | MaaFW 接口模型、任务选项、预任务计划、内嵌会话、分辨率、增量读取 |
+| `maafw_game_resolution.py` | `app.task.MaaFW.tools.embedded.game_resolution` | 读终末地 PC 客户端分辨率与显示模式 |
+| `maafw_project_update.py` | `app.task.MaaFW.tools.core.project_update.*` | 区间读取与限速；见下方说明 |
+
+`auto-mas-maafw-project-update` 0.2.0 不能在当前宿主上直接 import：它回退到
+`app.utils.common.zip_range` 取 `HealSkip`，而当前 `dev` 的 `zip_range` 还没有这个符号，SDK 5.9.0b1
+也没有 `utils_common_zip_range`。等宿主升级到带该导出的版本后，删掉 `maafw_project_update.py`，改为
+依赖 `auto-mas-maafw-project-update>=0.2,<0.3` 并从 `maafw_project_update.core.project_update` 取
+`RangeHTTPReader` / `RangeSpeedGuard`。
 
 有 SDK 现成入口的能力不要进 compat：`io`、`log_box`、`process`（含 operations/session/manager）、
 `log.sources`、`script_install`、`services_common_update.transport`、`devices.task` 都直接从

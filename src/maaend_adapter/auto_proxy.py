@@ -12,11 +12,9 @@
 #   You should have received a copy of the GNU Affero General Public License
 #   along with AUTO-MAS. If not, see <https://www.gnu.org/licenses/>.
 #   Contact: DLmaster_361@163.com
-# TODO(插件化)：本模块已改为插件基类 AutoProxyWorker，仍保留三类「宿主还没有插件门面」的导入，
-# 补齐顺序是「宿主先提供门面，本模块再改走门面」，在此之前保持原导入并就地标注：
-#   1) app.task.MaaFW.* 的资源接口模型、预任务计划与内嵌会话选项解析（见下方导入块）；
-#   2) app.task.desktop_session_worker.request_desktop_action 的桌面分身动作请求；
-#   3) app.utils.IS_WINDOWS 等平台常量已改走 auto_mas_core.host.utils 门面。
+# TODO(插件化)：MaaFramework 的接口模型、任务选项与预任务计划由 MaaFW 适配器拆出的
+# auto-mas-maafw-interface 库提供；桌面分身动作请求还没有对应库，暂经 compat/desktop_session.py
+# 转发宿主模块，宿主或 MaaFW 服务提供接口后删除。
 import asyncio
 import io
 import json
@@ -81,24 +79,25 @@ from auto_mas_core.host.utils import io as _utils_io
 from auto_mas_core.host.utils import log as _log
 from auto_mas_core.host.utils import process as _host_process
 
+# MaaFramework 的 interface 解析、任务选项与预任务计划由 MaaFW 适配器发布的库提供，
+# 不在本模块复制其逻辑，也不再从宿主 app.task.MaaFW 导入。
+from maafw_interface.embedded_labels import Labels as _Labels
+from maafw_interface.embedded_labels import mxu_option_values as _mxu_option_values
+from maafw_interface.interface import load_interface_model
+from maafw_interface.interface.task_config import (
+    build_task_option_maps,
+    normalize_task_options_by_task,
+)
+from maafw_interface.runner.run_plan import (
+    _build_pretask_plans,
+    _select_resource,
+)
+
 from . import notifications as _format_maaend
 from .compat.client import (
     ClientProcess,
     client_executable_path,
     client_launcher_path,
-)
-
-# TODO(插件化)：MaaFW 接口模型与预任务计划属于宿主上游内部模块，插件 SDK 暂无对应门面，
-# 只能直接导入宿主实现；宿主补齐能力门面后改走门面，不要在本模块复制其逻辑。
-from .compat.maafw_interface import load_interface_model
-from .compat.maafw_run_plan import (
-    _build_pretask_plans,
-    _select_resource,
-)
-from .compat.maafw_shell_instances import _Labels, _mxu_option_values
-from .compat.maafw_task_config import (
-    build_task_option_maps,
-    normalize_task_options_by_task,
 )
 from .config_session import maaend_config_base, maaend_mas_config_dir
 from .inventory_report import (

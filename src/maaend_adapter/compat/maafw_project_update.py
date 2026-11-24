@@ -1,6 +1,8 @@
 """宿主能力兼容层：MaaFW 增量更新读取器与限速器。
 
-TODO(SDK)：MaaFW 提供能力接口或 auto_mas_core.host 导出后删除本文件。
+TODO(MaaFW)：改用 auto-mas-maafw-project-update>=0.2,<0.3。它的 0.2.0 在导入时会
+回退到 app.utils.common.zip_range 取 HealSkip，当前宿主还没有该符号，因此暂时保留转发；
+宿主升级到带 utils_common_zip_range 的 SDK 后删除本文件。
 """
 
 from importlib import import_module

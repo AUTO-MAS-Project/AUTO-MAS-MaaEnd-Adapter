@@ -1,6 +1,7 @@
-"""宿主能力兼容层：auto_mas_core 尚未导出 app.task.MaaFW.tools.embedded.game_resolution。
+"""宿主能力兼容层：读终末地 PC 客户端（Unity）的分辨率与显示模式。
 
-TODO(SDK)：主仓 auto_mas_core.host 导出该模块后删除本文件，插件改为 SDK 导入。
+TODO(MaaFW)：auto-mas-maafw-interface / native 还没有导出这两个函数；等 MaaFW 适配器
+或对应库提供能力后删除本文件。
 """
 
 from importlib import import_module
