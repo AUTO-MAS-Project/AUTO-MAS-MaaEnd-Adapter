@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.models.config import MaaEndConfig
+    from ..config import MaaEndConfig
 
 import json5
 from auto_mas_core.host.utils import get_logger

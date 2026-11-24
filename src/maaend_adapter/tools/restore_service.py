@@ -65,7 +65,7 @@ logger = get_logger("MaaEnd 配置恢复")
 def _user_guard(ctx: _utils_config_restore.RestoreContext) -> None:
     """恢复守卫：目标账号必须存在，避免把配置恢复进孤儿目录。"""
 
-    if uuid.UUID(ctx.user_id) not in ctx.script_config.UserData:
+    if uuid.UUID(ctx.user_id) not in ctx.script_config.users:
         raise ValueError("MaaEnd 账号不存在，请刷新后重试")
 
 
@@ -77,7 +77,7 @@ async def _set_base(ctx: _utils_config_restore.RestoreContext, base: str) -> Non
     重定向 + 状态切回）。
     """
 
-    user = ctx.script_config.UserData[uuid.UUID(ctx.user_id)]
+    user = ctx.script_config.users[uuid.UUID(ctx.user_id)]
     await user.update(type(user).model_validate({"Info": {"Base": base}}))
 
 
@@ -92,7 +92,7 @@ def _mas_owner(ctx: _utils_config_restore.RestoreContext) -> str | None:
 
     try:
         uid = uuid.UUID(ctx.user_id)
-        base = maaend_config_base(ctx.script_config.UserData[uid].Info.Base)
+        base = maaend_config_base(ctx.script_config.users[uid].Info.Base)
     except (ValueError, KeyError, TypeError):
         return None
     if base == BASE_NATIVE:
@@ -157,7 +157,7 @@ async def _mas_files(
     return (
         collect_mas_files(
             mas_dir,
-            read_overlay_values(ctx.script_config.UserData[uuid.UUID(ctx.user_id)]),
+            read_overlay_values(ctx.script_config.users[uuid.UUID(ctx.user_id)]),
         )
         or None
     )
@@ -226,7 +226,7 @@ async def _restore_mas(ctx: _utils_config_restore.RestoreContext, ts: str) -> No
     owner = _mas_owner(ctx)
     if owner is None:
         raise ValueError("原生来源账号不使用 MAS 独立配置，无可恢复内容")
-    user = ctx.script_config.UserData[uuid.UUID(ctx.user_id)]
+    user = ctx.script_config.users[uuid.UUID(ctx.user_id)]
     restored_overlay = restore_mas_backup(
         ctx.script_id,
         ctx.user_id,

@@ -5,6 +5,17 @@
 
 ## 一、已完成
 
+### 配置模型
+
+`config/` 包已迁出 `MaaEndConfig`、`MaaEndUserConfig`、`MaaEndPlanConfig` 与两个计划 key：
+- 托管/账号保留原 PascalCase 业务字段，基类改为 `ScriptEntry` / `UserEntry`；账号集合为 `users`，
+  名称、启用状态、配置目录通过 `Metadata` 虚字段投影给宿主。
+- 计划表 `MaaEndPlanConfig` 继承 `PlanEntry`，复制 `PlanDaysConfig` / `WeeklyKeyPlan` 的取组逻辑，
+  `normalize_payload` 负责把历史 `Key` 形状收敛为当前模型。
+- `MaaEndConfig.normalize_payload` 把旧 `UserData`、`SubConfigsInfo.UserData` 转到 `users`，
+  并保留 `RestoreResolution=Fullscreen` 的旧值迁移。
+- `tests/test_config_migration.py` 覆盖上述迁移与虚字段投影。
+
 1. 在 `src/maaend_adapter/` 建立包结构，所有模块文件名改为 snake_case。
 2. 原 `app/core/notify/formats/maaend.py` 与 `app/services/common/endfield_launcher.py` 属于本专项，
    分别迁入 `notifications.py` 与 `tools/endfield_launcher.py`。
@@ -39,84 +50,46 @@
 
 ## 四、剩余工作（按依赖顺序）
 
-### 1. 配置模型迁出
+### 1. 已完成
 
-- 从 `app/models/config/script.py` 取出 `MaaEndConfig`、`MaaEndUserConfig`，从
-  `app/models/config/plan.py` 取出 `MaaEndPlanConfig`，从 `app/models/schema.py` 取出
-  `MaaEndProtocolSpacePlanKey`、`MaaEndAutoEssencePlanKey`，放进 `config/script.py`、
-  `config/user.py`、`config/plan.py`。
-- 基类从 `DomainEntry` 换成 `ScriptEntry` / `UserEntry` / `PlanEntry`：账号集合用 `users`，
-  公共字段用 `info.name` / `info.enabled`，业务字段保留原名，避免历史配置改键。
-- 旧配置升级：在 `config/migration.py` 把 `UserData` 形状的旧记录转成 `users`，保留 UID、顺序、
-  加密字段与备绑定；`legacy_config_class_name` 交给宿主升级入口识别。
-- 计划表：`MaaEndPlanConfig` 换成 `PlanEntry` 子类，保留 `Info.Mode/RotateDays` 与 `Day1..Day31`。
+- 配置模型、执行器与插件入口已完成，见第一节与第二节。
+- 单账号总时限已在 `AutoProxyTask.main_task` 里包 `Run.HardTimeLimit`。
+- 静态检查、导入冒烟与 10 条单元测试通过。
 
-### 2. 执行层改写
+### 2. 宿主切换（当前阻塞启用）
 
-- `MaaEndManager` → `MaaEndExpander(UserExpander)`：`check()`、`prepare()`、
-  `build_worker(user, config)`、`spawn(child)`（每账号跑完恢复安装目录配置）、`finish()`
-  （原 `final_task` 的报告、通知、日志包）。
-- `AutoProxyTask` → `AutoProxyTask(AutoProxyWorker)`：构造参数改为 `(expander, user, config)`，
-  `main_task` → `main_logic`，`final_task` → `finish`；阶段循环、启动方式、账号切换、
-  写 `mxu-MaaEnd.json`、等待 MXU、日志判态、失败截图与更新接管都保留。
-- `ScriptConfigTask` → `ScriptConfigWorker` 与 `ScriptViewWorker` 共用一个会话基类，
-  保留 `view_only` 语义：查看结束不写回 MAS 配置。
-- `EndfieldUpdateTask` → 维护任务接口；宿主 `app/task/legacy.py` 的 `maintenance_requirements`
-  只认内置类型名，插件化后要换成标准任务要求树。
-- 关卡点：去掉 `app.task.base`、`app.task.manager_base`、`app.task.client`、`app.task.game`
-  的直接导入，改用 `auto_mas_core.adapters.script`、`auto_mas_core.host.task_game`、
-  `ModeWorker` 提供的设备与会话能力。
+- 插件 `pre_enable` 在宿主仍内置 MaaEnd 类型时直接拒绝启用，避免两套同名类型并存。
+- 宿主侧要删：`app/task/builtin_registration.py` 的 MaaEnd 声明、`main.py` 的
+  `MaaEndConfigService` 装配、`app/api/scripts/__init__.py` 的内置路由、内置
+  `MaaEndConfig` / `MaaEndUserConfig` / `MaaEndPlanConfig` 与调用点。
+- 旧配置自动补装：在激活领域配置前识别旧的 `MaaEndConfig` 记录并安装本插件，保留 UID、
+  顺序、加密字段与设备绑定。
+- 前端仍按 `/api/scripts/maaend/*` 调用，插件提供同路径；切换时要一起验。
 
-### 3. 插件入口
+### 3. 手动「检查更新」入口
 
-执行层改写完成后新增 `plugin.py`，形状与其他专项一致：
+- 宿主 `TaskManager.start_maintenance` 只走旧 manager 维护链，插件没有标准维护任务入口。
+- `manual_update.py`（原 `Update.py`）保留为遗留代码；等宿主提供维护任务接口后再接回。
+  现在自动任务里的客户端更新仍可用（`prepare` 的 `_prepare_game_update`）。
 
-```python
-class Plugin(ScriptAdapterPlugin):
-    script_type_key = "MaaEnd"
-    api_router = router
-    decl = ScriptTypeDecl(
-        script_type=MaaEndConfig,
-        user_type=MaaEndUserConfig,
-        expander_class=MaaEndExpander,
-        plan_type=MaaEndPlanConfig,
-        supported_modes=(
-            TaskMode.AUTO_PROXY,
-            TaskMode.SCRIPT_CONFIG,
-            TaskMode.SCRIPT_VIEW,
-        ),
-        prefetch_check=check_prefetch,
-        activity_game="endfield",
-        game_kinds=("emulator", "client"),
-    )
-```
+### 4. 配置服务与恢复面板
 
-同时要保留宿主现在的三条前置判断：`MaaEnd.exe` 是否存在、控制器协议（Adb/Win32/CloudADB）、
-以及 `config/mxu-MaaEnd.json` 是否可用；这些判断目前分别写在 `expander.check()` 与
-`auto_proxy.check()` 里，迁移时不要合并成一条。
+- 插件侧没有 `ScriptConfigHandler` 与 `load_restore_pools` 挂钩，因此
+  `MaaEndConfigService.initialize`（Client→MaaEnd 启动方式迁移）、`preload_resources`
+  （原 `main.py` 的资源预热）与 `tools/restore_service.RESTORE_POOLS`（恢复面板）没有宿主调用点。
+- 恢复面板后续由插件自己的 `/api/plugin/maaend_adapter/backup/*` 提供，或宿主补声明式备份接口。
+- 接入前 `/api/scripts/maaend/options` 可用，但 initialize / 预热不会自动执行。
 
-### 4. HTTP 与前端
+### 5. 前端静态页
 
-- `api.py` 现在由宿主 `app/api/scripts/__init__.py` 直接 include；插件化后改为在 `plugin.py`
-  里 `router.include_router(..., prefix="/api/scripts")`，路径保持 `/api/scripts/maaend/*`。
-- 前端账号编辑页的 11 个分区（另有页头）、托管编辑页、计划表、配置会话遮罩、恢复面板仍在宿主
-  `frontend/src/views/`，按 MAA / SRC / 奇想盒的方式用静态 `entry.ts` 注册，迁移时只搬页面与
-  `useMaaEnd*` 组合式函数，路由后缀保持 `MaaEnd`。
-
-### 5. 宿主切换
-
-- 从 `app/task/builtin_registration.py` 移除 MaaEnd 注册，从 `main.py` 移除
-  `MaaEndConfigService` 装配，从 `app/api/scripts/__init__.py` 移除路由。
-- 删除内置 `MaaEndConfig` / `MaaEndUserConfig` / `MaaEndPlanConfig` 与调用点，或保留只读兼容层。
-- 旧配置自动补装：按 `app/core/config/plugin_upgrade.py` 现有机制，在激活领域配置前识别
-  `MaaEndConfig` 并安本插件。
+- 账号编辑页 11 个分区（另有页头）、托管编辑页、计划表、配置会话遮罩、恢复面板仍在宿主
+  `frontend/src/views/`，按 MAA / SRC / 奇想盒的方式用静态 `entry.ts` 注册，路由后缀保持 `MaaEnd`。
 
 ### 6. 验证
 
-- 静态：`uv run --no-sync python -m compileall src`、`ruff check`。
-- 导入：把主程序源码与 `plugins/auto_mas_core/src` 加入 `sys.path`，导入每个模块。
-- 真机：Windows + MaaEnd + 模拟器与 PC 客户端两种控制器；覆盖启动三种方式、账号切换两条路、
-  配置会话保存与只读查看、程序更新接管、游戏客户端差量更新、备份恢复与通知。
+- 已做：compileall、ruff、40 个模块导入、10 条测试（配置迁移 + 插件声明）。
+- 待做：Windows 真机覆盖三种启动方式、两条切号路径、配置保存/只读查看、程序更新接管、
+  终末地差量更新、备份恢复、通知与失败取证；旧配置冷启动升级。
 
 ## 五、已知风险
 
@@ -128,3 +101,9 @@ class Plugin(ScriptAdapterPlugin):
 3. `update_takeover.py` 按 MXU 日志文本判断更新状态，属于上游私有格式透传；上游改文案会静默失效，
    迁移时保留现有注释与版本核对点。
 4. 日志包导出规则复刻 MXU `export_logs_blocking`，同样随上游变化。
+5. `BoundEmulator.open` 默认拒绝 ModAVD（`allow_mod_avd=False`），旧 `DeviceBase.open` 没有这个限制；
+   原来用 ModAVD 的用户会收到「当前专项不支持 ModAVD」，需要实机确认后再决定是否显式放开。
+6. 插件声明的 `prefetch_check` 只负责队列预下载；`prefetch_script_update` / `discard_prefetched_update`
+   在插件世界没有宿主调用点，运行前安装是否复用预取产物需要实测确认。
+7. 配置会话结束时 `ModeWorker.final_task` 会把账号状态改写成「已取消」，所以原生来源是否保留
+   GUI 写回改读 `native_config_saved`，不能再用 `status == "完成"`。

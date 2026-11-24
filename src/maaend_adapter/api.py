@@ -30,7 +30,7 @@ from auto_mas_core.host.models_schema import (
     ScriptDeleteIn,
 )
 from auto_mas_core.host.utils import get_logger
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends
 from pydantic import (
     BaseModel,
     Field,
@@ -39,8 +39,16 @@ from pydantic import (
 from .config_service import MaaEndConfigService
 
 
-def get_maaend_config_service(request: Request) -> MaaEndConfigService:
-    return request.app.state.maaend_config_service
+def get_maaend_config_service() -> MaaEndConfigService:
+    """取得本插件的配置服务。
+
+    插件化前服务由宿主 main.py 挂在 app.state.maaend_config_service；现在改由插件实例在
+    pre_enable 里创建持有（见 plugin.py），端点按需从插件模块取。这里延迟导入 plugin：
+    plugin.py 顶部要 include 本模块的路由，模块级导入会成环。
+    """
+    from .plugin import config_service
+
+    return config_service()
 
 
 MaaEndService = Annotated[MaaEndConfigService, Depends(get_maaend_config_service)]

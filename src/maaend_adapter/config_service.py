@@ -23,7 +23,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from app.models.config import MaaEndConfig as RuntimeMaaEndConfig
 from auto_mas_core.host.config import ConfigCollection, ConfigEntry
 from auto_mas_core.host.task_client import client_executable_path
 from auto_mas_core.host.utils import (
@@ -34,6 +33,7 @@ from auto_mas_core.host.utils import (
 )
 from auto_mas_core.host.utils import io as _utils_io
 
+from .config import MaaEndConfig as RuntimeMaaEndConfig
 from .resource_loader import get_loaded_maaend_options, try_load_maaend_options
 from .tools import endfield_launcher as _service_endfield_launcher
 from .tools.backup_archive import archive_mas_backup, read_overlay_values
@@ -99,7 +99,7 @@ class MaaEndConfigService:
     async def _preload_resource(self, script: RuntimeMaaEndConfig) -> None:
         resource = await asyncio.to_thread(try_load_maaend_options, script.Info.Path)
         if resource is not None:
-            for user in script.UserData.values():
+            for user in script.users.values():
                 user.cache_maaend_resource(resource)
 
     async def get_options(self, script_id: str) -> dict[str, Any]:
@@ -109,7 +109,7 @@ class MaaEndConfigService:
         if not root_path:
             raise ValueError("MaaEnd 路径未配置")
         options = await asyncio.to_thread(get_loaded_maaend_options, Path(root_path))
-        for user in script.UserData.values():
+        for user in script.users.values():
             user.cache_maaend_resource(options)
         game_path = str(client_executable_path(script) or "").strip()
         if game_path:
@@ -156,7 +156,7 @@ class MaaEndConfigService:
         # 共享导入没有单一账号，按所有受影响用户归桶，让各自恢复页都能找到旧设置。
         archive_users: list[tuple[str, ConfigEntry | None]] = [
             (str(uid), user)
-            for uid, user in script.UserData.items()
+            for uid, user in script.users.items()
             if str(uid) == owner
             or (
                 owner == "Default"

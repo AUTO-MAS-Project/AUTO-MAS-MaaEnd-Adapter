@@ -29,7 +29,6 @@ import asyncio
 from contextlib import suppress
 from pathlib import Path
 
-from app.models.config import MaaEndConfig
 from auto_mas_core.adapters.script import game_update_result, point
 from auto_mas_core.host.core import Publisher
 from auto_mas_core.host.core_ws import protocol
@@ -39,6 +38,7 @@ from auto_mas_core.host.task_client import client_executable_path
 from auto_mas_core.host.task_proxy_helpers import push_dispatch_log
 from auto_mas_core.host.utils import get_logger
 
+from .config import MaaEndConfig
 from .tools.update import ensure_game_updated
 
 logger = get_logger("终末地客户端更新")

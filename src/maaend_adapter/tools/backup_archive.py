@@ -319,7 +319,7 @@ def group_overlay(overlay: dict) -> dict[str, dict]:
         if key in _OVERLAY_PREVIEW_ONLY_KEYS:
             continue
         grouped.setdefault(_OVERLAY_KEY_GROUP.get(key, "Task"), {})[key] = value
-    from app.models.config.shared import migrate_maaend_sanity_tasks
+    from auto_mas_core.host.models_config_shared import migrate_maaend_sanity_tasks
 
     return migrate_maaend_sanity_tasks(grouped)
 

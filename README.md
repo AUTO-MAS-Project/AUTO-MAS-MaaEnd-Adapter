@@ -8,13 +8,16 @@ MaaEnd 是终末地的 MaaFramework PI V2 项目，外置图形界面由 MXU 承
 
 ## 当前状态
 
-这是迁移基线，不是可直接安装的插件：
+迁移已完成到插件执行接口，但宿主仍内置同名类型，暂时不能在插件中心启用：
 
 - 已完成：目录与包结构、文件名规范化、叶子模块（工具层、资源解析、日志采集、通知、
   备份恢复、配置服务、HTTP 路由）的宿主导入改为 `auto_mas_core` 门面。
-- 未完成：配置模型仍引用宿主 `app.models.config`；执行层仍基于宿主旧执行基类
-  （`ScriptManagerBase` / `TaskExecuteBase`），尚未接入 `UserExpander` 与
-  `AutoProxyWorker` 等插件执行接口；因此仓库还没有 `plugin.py` 入口。
+- 已完成：托管、账号与计划表配置迁到 `config/` 包，基类换成 `ScriptEntry` / `UserEntry` /
+  `PlanEntry`，旧 `UserData` 与字段形状有迁移入口与测试。
+- 已完成：执行层改为插件接口——`MaaEndExpander(UserExpander)`、`AutoProxyTask(AutoProxyWorker)`、
+  `ScriptConfigTask(ScriptConfigWorker)` / `ScriptViewTask(ScriptViewWorker)`，并新增 `plugin.py`。
+- 未完成：宿主还内置同名 `MaaEndConfig`，`pre_enable` 会直接拒绝启用，需要宿主切换后才能真正装上；
+  手动「检查更新」、恢复面板与前端静态页也还没接。
 
 详细进度、文件映射和剩余工作见 [`docs/migration-status.md`](docs/migration-status.md)。
 

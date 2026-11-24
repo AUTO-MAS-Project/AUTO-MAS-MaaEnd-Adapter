@@ -22,7 +22,6 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 import psutil
-from app.models.config import MaaEndConfig
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.core_downloads import download_file
 from auto_mas_core.host.services import script_install
@@ -34,6 +33,7 @@ from auto_mas_core.host.utils import fluxdown_cli as _fluxdown_cli
 from auto_mas_core.host.utils import io as _utils_io
 from packaging.version import Version
 
+from ..config import MaaEndConfig
 from .package_download import (
     download_incremental,
     remember_package,
