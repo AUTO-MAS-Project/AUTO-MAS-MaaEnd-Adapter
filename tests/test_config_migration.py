@@ -1,6 +1,6 @@
 """配置模型迁移：旧字段形状与插件基类投影。"""
 
-from maaend_adapter.config import (
+from auto_mas_maaend_adapter.config import (
     MaaEndConfig,
     MaaEndPlanConfig,
     MaaEndUserConfig,

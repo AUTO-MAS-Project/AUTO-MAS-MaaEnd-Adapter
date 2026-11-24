@@ -227,6 +227,12 @@ class MaaEndConfig(ScriptEntry):
             game_data["RestoreResolution"] = "1920x1080"
         return data
 
+
+    async def _activate_from_payload(self, payload, *, regenerate_uuids=False):
+        """先迁移历史载荷，再交给配置框架激活节点与嵌套集合。"""
+        await super()._activate_from_payload(
+            type(self).normalize_payload(payload), regenerate_uuids=regenerate_uuids
+        )
     users: ConfigCollection[MaaEndUserConfig] = collection(MaaEndUserConfig)
 
     class Metadata(ScriptEntry.Info):

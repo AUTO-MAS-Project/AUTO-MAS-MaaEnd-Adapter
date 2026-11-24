@@ -61,6 +61,8 @@ class MaaEndConfigService:
         self._scripts = scripts
         self._read_resolution = read_resolution
         self._read_display_type = read_display_type
+        self._preload_started = False
+        self._preload_task: asyncio.Task[None] | None = None
 
     def _get_script(self, script_id: str) -> RuntimeMaaEndConfig:
         script = self._scripts[uuid.UUID(script_id)]
@@ -69,7 +71,7 @@ class MaaEndConfigService:
         return script
 
     async def initialize(self, script: ConfigEntry) -> None:
-        """激活完成后迁移历史 Client 值，由宿主保持同一 Task 和提交边界。"""
+        """迁移历史 Client 启动方式；由首次读取选项的 warmup 调用，幂等。"""
         if not isinstance(script, RuntimeMaaEndConfig):
             return
         if script.Game.LaunchMode != "Client" or script.Info.Path is None:
@@ -87,7 +89,7 @@ class MaaEndConfigService:
             await script.commit()
 
     async def preload_resources(self) -> None:
-        """由宿主在激活完成后调度预加载，资源失败不改变已有配置。"""
+        """首次读取选项时在后台预加载全部脚本资源；失败不改变已有配置。"""
         await asyncio.gather(
             *(
                 self._preload_resource(script)
@@ -102,9 +104,41 @@ class MaaEndConfigService:
             for user in script.users.values():
                 user.cache_maaend_resource(resource)
 
+    async def _warm_up(self, script: RuntimeMaaEndConfig) -> None:
+        """首次读取选项时补做启动方式迁移，并调度一次资源预加载。
+
+        插件化后宿主不再有装配期调用点：迁移是幂等的，失败只告警、不影响
+        本次选项读；资源预加载放后台跑一次，结果只进用户缓存。
+        """
+        try:
+            await self.initialize(script)
+        except Exception:
+            logger.opt(exception=True).warning(
+                "MaaEnd 启动方式迁移失败，已跳过（不阻断选项读取）"
+            )
+        if self._preload_started:
+            return
+        self._preload_started = True
+        self._preload_task = asyncio.create_task(self._preload_resources_safely())
+
+    async def _preload_resources_safely(self) -> None:
+        """预加载资源；失败只记日志，不冒泡成未处理任务异常。"""
+        try:
+            await self.preload_resources()
+        except Exception:
+            logger.opt(exception=True).warning("MaaEnd 资源预加载失败，已跳过")
+
+    async def aclose(self) -> None:
+        """停掉一次性资源预加载任务（插件禁用时调用）。"""
+        task, self._preload_task = self._preload_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
     async def get_options(self, script_id: str) -> dict[str, Any]:
         """读取安装资源，并补充游戏保存的分辨率与显示模式。"""
         script = self._get_script(script_id)
+        await self._warm_up(script)
         root_path = str(script.Info.Path or "").strip()
         if not root_path:
             raise ValueError("MaaEnd 路径未配置")

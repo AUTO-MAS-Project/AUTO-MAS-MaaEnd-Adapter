@@ -7,10 +7,10 @@ from auto_mas_core import (
     TaskMode,
 )
 
-from maaend_adapter.auto_proxy import AutoProxyTask
-from maaend_adapter.config_session import ScriptConfigTask, ScriptViewTask
-from maaend_adapter.expander import MaaEndExpander
-from maaend_adapter.plugin import Plugin
+from auto_mas_maaend_adapter.auto_proxy import AutoProxyTask
+from auto_mas_maaend_adapter.config_session import ScriptConfigTask, ScriptViewTask
+from auto_mas_maaend_adapter.expander import MaaEndExpander
+from auto_mas_maaend_adapter.plugin import Plugin
 
 
 def test_decl_covers_three_modes_and_configs():

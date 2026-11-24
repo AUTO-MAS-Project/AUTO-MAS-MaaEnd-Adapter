@@ -232,6 +232,12 @@ class MaaEndPlanConfig(WeeklyKeyPlan):
                 normalized_data[group] = {"Key": normalize_maaend_plan_key(group_data)}
         return normalized_data
 
+
+    async def _activate_from_payload(self, payload, *, regenerate_uuids=False):
+        """先迁移历史载荷，再交给配置框架激活节点与嵌套集合。"""
+        await super()._activate_from_payload(
+            type(self).normalize_payload(payload), regenerate_uuids=regenerate_uuids
+        )
     class Metadata(PlanEntry.Info):
         name: Virtual[str] = None  # pyright: ignore[reportIncompatibleVariableOverride]
 

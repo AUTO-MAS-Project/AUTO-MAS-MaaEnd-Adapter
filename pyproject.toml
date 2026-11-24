@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=77", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
 
 [project]
 name = "auto-mas-maaend-adapter"
@@ -25,15 +25,11 @@ Issues = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaEnd-Adapter/issues"
 Documentation = "https://doc.auto-mas.top/developer/"
 Homepage = "https://auto-mas.top"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-maaend_adapter = ["py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
 
 [tool.ruff]
 target-version = "py312"
@@ -43,5 +39,5 @@ select = ["E4", "E7", "E9", "F", "I"]
 ignore = ["F403", "F405"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["maaend_adapter"]
+known-first-party = ["auto_mas_maaend_adapter"]
 known-third-party = ["app", "auto_mas_core"]

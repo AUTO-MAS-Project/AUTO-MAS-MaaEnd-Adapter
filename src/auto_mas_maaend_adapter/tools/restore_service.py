@@ -81,11 +81,25 @@ async def _set_base(ctx: _utils_config_restore.RestoreContext, base: str) -> Non
     await user.update(type(user).model_validate({"Info": {"Base": base}}))
 
 
+async def _current_base(ctx: _utils_config_restore.RestoreContext) -> str | None:
+    """读当前配置来源 base；插件账号集合是 `users`，基座默认读 `UserData` 会漏判。
+
+    声明 `mas_base="tri_state"` 的池靠它写备份来源标注、判跨来源恢复；读不到
+    账号时返回 `None`（降级为不标注、不切换），与本池其他函数的容错一致。
+    """
+
+    try:
+        raw = ctx.script_config.users[uuid.UUID(ctx.user_id)].Info.Base
+    except (ValueError, KeyError, TypeError):
+        return None
+    return maaend_config_base(raw)
+
+
 def _mas_owner(ctx: _utils_config_restore.RestoreContext) -> str | None:
     """当前账号的 MAS 配置目录 owner；原生来源/无法解析时返回 ``None``。
 
     shared 来源共享 ``Default``、independent 来源用当前用户目录，与
-    :func:`~maaend_adapter.config_session.maaend_mas_config_dir`（运行下发
+    :func:`~auto_mas_maaend_adapter.config_session.maaend_mas_config_dir`（运行下发
     与会话包络）同一套来源规则；账号不存在时无法判态，返回 ``None`` 让
     列表/预览为空（恢复/归档另有用户守卫）。
     """
@@ -297,6 +311,7 @@ RESTORE_POOLS = [
         kind="user",
         mas_base="tri_state",
         set_base=_set_base,
+        current_base=_current_base,
         files=_mas_files,
         backup_root=_mas_root,
         preview=_preview_mas,

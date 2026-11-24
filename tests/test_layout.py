@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-PACKAGE = Path(__file__).resolve().parents[1] / "src" / "maaend_adapter"
+PACKAGE = Path(__file__).resolve().parents[1] / "src" / "auto_mas_maaend_adapter"
 SNAKE_CASE = re.compile(r"^[a-z][a-z0-9_]*\.py$")
 
 

@@ -16,7 +16,7 @@
   并保留 `RestoreResolution=Fullscreen` 的旧值迁移。
 - `tests/test_config_migration.py` 覆盖上述迁移与虚字段投影。
 
-1. 在 `src/maaend_adapter/` 建立包结构，所有模块文件名改为 snake_case。
+1. 在 `src/auto_mas_maaend_adapter/` 建立包结构，所有模块文件名改为 snake_case。
 2. 原 `app/core/notify/formats/maaend.py` 与 `app/services/common/endfield_launcher.py` 属于本专项，
    分别迁入 `notifications.py` 与 `tools/endfield_launcher.py`。
 3. 叶子模块的宿主导入改为 `auto_mas_core` 已导出的 host 模块：工具层、资源解析、日志采集规则、
@@ -31,7 +31,7 @@ MaaFramework 的 `interface.json` 解析、任务选项、预任务计划与 MXU
 库提供（`pyproject.toml` 已依赖），不再走宿主 `app.task.MaaFW`，也不进 compat。
 
 下面这些宿主能力 SDK 5.9.0b1 还没有导出，也没有对应的 MaaFW 库，先放在
-`src/maaend_adapter/compat/` 里按需转发；每个文件都写了目标模块与待删条件：
+`src/auto_mas_maaend_adapter/compat/` 里按需转发；每个文件都写了目标模块与待删条件：
 
 | compat 文件 | 转发目标 | 用途 |
 | --- | --- | --- |
@@ -84,19 +84,20 @@ MaaFramework 的 `interface.json` 解析、任务选项、预任务计划与 MXU
 
 ### 1. 已完成
 
-- 配置模型、执行器与插件入口已完成，见第一节与第二节。
+- 配置模型、执行器、插件入口、插件自有备份恢复端点与前端页面已完成。
 - 单账号总时限已在 `AutoProxyTask.main_task` 里包 `Run.HardTimeLimit`。
-- 静态检查、导入冒烟与 10 条单元测试通过。
+- 静态检查、52 个模块导入与 13 条单元测试通过；前端 33 个文件通过 `vue-tsc`。
 
-### 2. 宿主切换（当前阻塞启用）
+### 2. 宿主切换（已在 worktree 跑通，未合并）
 
 - 插件 `pre_enable` 在宿主仍内置 MaaEnd 类型时直接拒绝启用，避免两套同名类型并存。
-- 宿主侧要删：`app/task/builtin_registration.py` 的 MaaEnd 声明、`main.py` 的
-  `MaaEndConfigService` 装配、`app/api/scripts/__init__.py` 的内置路由、内置
-  `MaaEndConfig` / `MaaEndUserConfig` / `MaaEndPlanConfig` 与调用点。
-- 旧配置自动补装：在激活领域配置前识别旧的 `MaaEndConfig` 记录并安装本插件，保留 UID、
-  顺序、加密字段与设备绑定。
-- 前端仍按 `/api/scripts/maaend/*` 调用，插件提供同路径；切换时要一起验。
+- 已在 `/home/uy_sun/dev/AUTO-MAS-maaend-cutover-20261124` 实删：`CLASS_BOOK` / `PLAN_BOOK`
+  的 MaaEnd、`builtin_registration` 的注册、`main.py` 的服务与预热、内置路由；
+  `plugin_upgrade` 增加旧 `MaaEndConfig` / `MaaEndPlanConfig` 自动装插件，并在安装前先发现本地工程。
+- 用真实旧 `scripts.yaml` 跑 `Config.init_config()` + `Plugin.initialize()`：插件自动启用，
+  `UserData` 迁成 `users` 并落盘；新建托管、账号、计划表都走插件类型。
+- 仍未删内置 `app/task/MaaEnd` 包与三个配置类：桌面分身 worker 还直接 import 其中的
+  login/launcher 工具，等这些工具迁到插件能力后再删，避免桌面动作断链。
 
 ### 3. 手动「检查更新」入口
 
@@ -104,24 +105,28 @@ MaaFramework 的 `interface.json` 解析、任务选项、预任务计划与 MXU
 - `manual_update.py`（原 `Update.py`）保留为遗留代码；等宿主提供维护任务接口后再接回。
   现在自动任务里的客户端更新仍可用（`prepare` 的 `_prepare_game_update`）。
 
-### 4. 配置服务与恢复面板
+### 4. 配置服务与恢复面板（已完成）
 
-- 插件侧没有 `ScriptConfigHandler` 与 `load_restore_pools` 挂钩，因此
-  `MaaEndConfigService.initialize`（Client→MaaEnd 启动方式迁移）、`preload_resources`
-  （原 `main.py` 的资源预热）与 `tools/restore_service.RESTORE_POOLS`（恢复面板）没有宿主调用点。
-- 恢复面板后续由插件自己的 `/api/plugin/maaend_adapter/backup/*` 提供，或宿主补声明式备份接口。
-- 接入前 `/api/scripts/maaend/options` 可用，但 initialize / 预热不会自动执行。
+- `MaaEndConfigService.get_options()` 首次读取时补做 `initialize`（Client→MaaEnd 启动方式迁移，幂等、
+  失败只告警），并调度一次 `preload_resources` 后台任务；插件停用时取消任务。
+- 备份恢复改由插件自己的 `/api/plugin/maaend_adapter/backup/{list,ensure,restore,preview,file}`
+  提供，使用 `RESTORE_POOLS` + `build_restore_service`，不依赖宿主恢复池解析器；
+  错误包络与宿主一致，恢复前检查托管锁。
+- 测试覆盖 mas/native 两池的 ensure/list/preview/restore 主路径、非法 target、缺失备份、
+  路径穿越；跨 shared/independent/native 的来源切换还没有专门用例。
 
-### 5. 前端静态页
+### 5. 前端页面（继续由主程序提供）
 
-- 账号编辑页 11 个分区（另有页头）、托管编辑页、计划表、配置会话遮罩、恢复面板仍在宿主
-  `frontend/src/views/`，按 MAA / SRC / 奇想盒的方式用静态 `entry.ts` 注册，路由后缀保持 `MaaEnd`。
+- GUI 仍使用宿主 `frontend/src/views/EditView/` 下的 MaaEnd 编辑页与计划表，插件仓库不包含
+  `frontend/`，也不参与宿主动态前端加载。
+- 这样插件发行包只负责后端能力，GUI 随主程序版本发布；后续如果宿主动态前端加载上线，再单独迁移。
 
 ### 6. 验证
 
-- 已做：compileall、ruff、40 个模块导入、10 条测试（配置迁移 + 插件声明）。
-- 待做：Windows 真机覆盖三种启动方式、两条切号路径、配置保存/只读查看、程序更新接管、
-  终末地差量更新、备份恢复、通知与失败取证；旧配置冷启动升级。
+- 已做：compileall、ruff、52 个模块导入、13 条测试；宿主 worktree 里旧配置冷启动、插件
+  自动安装/启用、托管/账号/计划创建、备份端点全部跑通。
+- 待做：Windows 真机覆盖三种启动方式、两条切号、配置保存/只读查看、程序更新接管、
+  终末地差量更新、通知与失败取证；ModAVD 行为、桌面分身动作。
 
 ## 五、已知风险
 

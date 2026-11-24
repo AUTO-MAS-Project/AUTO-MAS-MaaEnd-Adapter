@@ -24,6 +24,7 @@ from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
 from fastapi import APIRouter
 
 from .api import router as maaend_router
+from .backup_api import router as backup_router
 
 # TODO(插件化)：分辨率与显示模式读的是终末地 PC 客户端（Unity）写在注册表里的项。
 # auto-mas-maafw-interface / native 目前没有导出这两个函数，暂经 compat 转发；MaaFW 适配器
@@ -37,6 +38,8 @@ from .expander import MaaEndExpander
 # /api/scripts，避免两边各写一遍前缀。
 router = APIRouter()
 router.include_router(maaend_router, prefix="/api/scripts", tags=["脚本管理"])
+# 备份恢复走插件自有前缀：宿主通用备份端点依赖宿主装配的恢复池解析器。
+router.include_router(backup_router)
 
 
 # 启用期持有的能力服务：端点经 config_service() 取；未启用时明确报错。
@@ -95,5 +98,8 @@ class Plugin(ScriptAdapterPlugin):
     async def on_disable(self) -> None:
         """卸下本实例保管的服务引用，避免禁用后仍从模块级入口取到。"""
         global _config_service
-        if _config_service is getattr(self, "_config_service", None):
+        service = getattr(self, "_config_service", None)
+        if service is not None:
+            await service.aclose()
+        if _config_service is service:
             _config_service = None
