@@ -35,10 +35,11 @@ from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
-from auto_mas_core.host import utils_common_game_window as _game_window
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.utils import IS_WINDOWS
 from auto_mas_core.host.utils import display as _utils_display
+
+from ..compat import game_window as _game_window
 
 if TYPE_CHECKING:
     import pyautogui
@@ -49,12 +50,13 @@ if IS_WINDOWS:
     # 且下方使用它的函数均为 Windows 专属路径，随 win32 一并惰性导入
     import pyautogui
     import win32gui
-from auto_mas_core.host import tools_error_screenshot as _tool_error_screenshot
-from auto_mas_core.host import tools_ocr as _tool_ocr
 from auto_mas_core.host.models_emulator import DeviceInfo
 from auto_mas_core.host.utils import get_logger
 from PIL import Image
 from rapidocr_onnxruntime import RapidOCR
+
+from ..compat import error_screenshot as _tool_error_screenshot
+from ..compat import ocr as _tool_ocr
 
 logger = get_logger("终末地登录")
 

@@ -5,12 +5,13 @@ import tempfile
 import threading
 from pathlib import Path
 
-from auto_mas_core.host.services_script_install import (
-    InstallUnsafeError,
-    _check_cancel,
-    _reject_link,
-    tree_hashes,
-)
+from auto_mas_core.host.services import script_install
+
+InstallUnsafeError = script_install.InstallUnsafeError
+_check_cancel = script_install._check_cancel
+_reject_link = script_install._reject_link
+tree_hashes = script_install.tree_hashes
+
 
 
 def refresh_merged_pipelines(

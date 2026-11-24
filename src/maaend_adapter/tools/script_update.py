@@ -25,10 +25,7 @@ import psutil
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.core_downloads import download_file
 from auto_mas_core.host.services import script_install
-from auto_mas_core.host.services_common_update_transport import (
-    DownloadProgress,
-    request_mirror_resource,
-)
+from auto_mas_core.host.services_common_update import transport
 from auto_mas_core.host.utils import fluxdown_cli as _fluxdown_cli
 from auto_mas_core.host.utils import io as _utils_io
 from packaging.version import Version
@@ -39,6 +36,9 @@ from .package_download import (
     remember_package,
 )
 from .pipeline_migration import refresh_merged_pipelines
+
+DownloadProgress = transport.DownloadProgress
+request_mirror_resource = transport.request_mirror_resource
 
 REPOSITORY = "MaaEnd/MaaEnd"
 # 官方包的 data/ 是资源目录（如 AutoDelivery/catalog.json），必须更新；

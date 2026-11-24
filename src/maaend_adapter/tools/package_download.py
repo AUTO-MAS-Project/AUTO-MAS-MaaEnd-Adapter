@@ -10,17 +10,21 @@ from functools import partial
 from pathlib import Path
 
 import httpx
-from app.task.MaaFW.tools.core.project_update.projection_heal import RangeHTTPReader
-from app.task.MaaFW.tools.core.project_update.range_delta import RangeSpeedGuard
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.core_downloads import download_file
 from auto_mas_core.host.services import script_install
 from auto_mas_core.host.services_common_update import transport
-from auto_mas_core.host.services_common_update_transport import DownloadProgress
 from auto_mas_core.host.utils import get_logger
-from auto_mas_core.host.utils_common_zip_delta import MAX_PATCH_BYTES, apply_patch
-from auto_mas_core.host.utils_common_zip_range import rebuild_zip
 from packaging.version import Version
+
+from ..compat import zip_delta as _zip_delta
+from ..compat import zip_range as _zip_range
+from ..compat.maafw_project_update import RangeHTTPReader, RangeSpeedGuard
+
+DownloadProgress = transport.DownloadProgress
+MAX_PATCH_BYTES = _zip_delta.MAX_PATCH_BYTES
+apply_patch = _zip_delta.apply_patch
+rebuild_zip = _zip_range.rebuild_zip
 
 logger = get_logger("MaaEnd 增量下载")
 MAX_INDEX_BYTES = 512 * 1024

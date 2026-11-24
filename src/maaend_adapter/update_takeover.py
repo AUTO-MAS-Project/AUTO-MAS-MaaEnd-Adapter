@@ -34,13 +34,13 @@ from auto_mas_core.host.utils import (
     get_logger,
 )
 from auto_mas_core.host.utils import io as _utils_io
-from auto_mas_core.host.utils_common_process_operations import (
-    iter_processes,
-    terminate_process,
-)
+from auto_mas_core.host.utils import process as _host_process
 
 if TYPE_CHECKING:
-    from app.utils.windows.desktop_session.process_runner import DesktopProcess
+    from typing import Any as DesktopProcess
+
+iter_processes = _host_process.operations.iter_processes
+terminate_process = _host_process.operations.terminate_process
 
 logger = get_logger("MaaEnd 更新接管")
 

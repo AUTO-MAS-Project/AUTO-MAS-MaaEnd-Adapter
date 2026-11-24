@@ -32,22 +32,9 @@ from pathlib import Path
 from time import monotonic, time, time_ns
 from typing import Any
 
-# TODO(插件化)：MaaFW 接口模型与预任务计划属于宿主上游内部模块，插件 SDK 暂无对应门面，
-# 只能直接导入宿主实现；宿主补齐能力门面后改走门面，不要在本模块复制其逻辑。
-from app.task.MaaFW.tools.core.interface.loader import load_interface_model
-from app.task.MaaFW.tools.core.interface.task_config import (
-    build_task_option_maps,
-    normalize_task_options_by_task,
-)
-from app.task.MaaFW.tools.core.runner.run_plan import (
-    _build_pretask_plans,
-    _select_resource,
-)
-from app.task.MaaFW.tools.embedded.shell_instances import _Labels, _mxu_option_values
 from auto_mas_core import AutoProxyWorker
 from auto_mas_core.adapters.script import begin_attempt, point
 from auto_mas_core.devices.task import game_device_id
-from auto_mas_core.host import utils_common_log_sources as log_source
 from auto_mas_core.host.core import Config, Notify, Publisher
 from auto_mas_core.host.core_history import aggregate_data
 from auto_mas_core.host.core_ws import protocol
@@ -63,11 +50,6 @@ from auto_mas_core.host.services import (
     capture_adb,
     capture_win32,
     execute_script_task,
-)
-from auto_mas_core.host.task_client import (
-    ClientProcess,
-    client_executable_path,
-    client_launcher_path,
 )
 from auto_mas_core.host.task_emulator_core import (
     close_emulator,
@@ -96,13 +78,28 @@ from auto_mas_core.host.utils import (
     process,
 )
 from auto_mas_core.host.utils import io as _utils_io
-from auto_mas_core.host.utils_common_process_manager import (
-    has_process_window,
-    wait_process_window_ready,
-)
-from auto_mas_core.host.utils_common_process_session import desktop_process_target
+from auto_mas_core.host.utils import log as _log
+from auto_mas_core.host.utils import process as _host_process
 
 from . import notifications as _format_maaend
+from .compat.client import (
+    ClientProcess,
+    client_executable_path,
+    client_launcher_path,
+)
+
+# TODO(插件化)：MaaFW 接口模型与预任务计划属于宿主上游内部模块，插件 SDK 暂无对应门面，
+# 只能直接导入宿主实现；宿主补齐能力门面后改走门面，不要在本模块复制其逻辑。
+from .compat.maafw_interface import load_interface_model
+from .compat.maafw_run_plan import (
+    _build_pretask_plans,
+    _select_resource,
+)
+from .compat.maafw_shell_instances import _Labels, _mxu_option_values
+from .compat.maafw_task_config import (
+    build_task_option_maps,
+    normalize_task_options_by_task,
+)
 from .config_session import maaend_config_base, maaend_mas_config_dir
 from .inventory_report import (
     INVENTORY_REPORT_RULE,
@@ -136,6 +133,11 @@ from .update_takeover import (
     snapshot_mxu_logs,
     update_maaend_after_stage,
 )
+
+log_source = _log.sources
+has_process_window = _host_process.manager.has_process_window
+wait_process_window_ready = _host_process.manager.wait_process_window_ready
+desktop_process_target = _host_process.session.desktop_process_target
 
 logger = get_logger("MaaEnd 自动代理")
 
@@ -892,8 +894,7 @@ class AutoProxyTask(AutoProxyWorker):
     async def _game_window_in_session(self) -> bool:
         if (desktop := desktop_process_target.get()) is None:
             return self._game_window_present()
-        # TODO(插件化)：桌面分身动作请求只有宿主内部入口，插件 SDK 暂无对应门面。
-        from app.task.desktop_session_worker import request_desktop_action
+        from .compat.desktop_session import request_desktop_action
 
         _, present = await request_desktop_action(desktop, "maaend_game_window", {})
         return bool(present)
@@ -912,8 +913,7 @@ class AutoProxyTask(AutoProxyWorker):
         logger.info(f"启动终末地: {game_path}")
         point(self, "start_game")
         if (desktop := desktop_process_target.get()) is not None:
-            # TODO(插件化)：桌面分身动作请求只有宿主内部入口，插件 SDK 暂无对应门面。
-            from app.task.desktop_session_worker import request_desktop_action
+            from .compat.desktop_session import request_desktop_action
 
             async with asyncio.timeout(60):
                 await request_desktop_action(
@@ -1015,8 +1015,7 @@ class AutoProxyTask(AutoProxyWorker):
                 )
 
             if (desktop := desktop_process_target.get()) is not None:
-                # TODO(插件化)：桌面分身动作请求只有宿主内部入口，插件 SDK 暂无对应门面。
-                from app.task.desktop_session_worker import request_desktop_action
+                from .compat.desktop_session import request_desktop_action
 
                 code, screenshots = await request_desktop_action(
                     desktop,
@@ -1847,10 +1846,7 @@ class AutoProxyTask(AutoProxyWorker):
                 try:
                     await self.script_info.set_log("正在由 MAS 自建流程切换账号...")
                     if (desktop := desktop_process_target.get()) is not None:
-                        # TODO(插件化)：桌面分身动作请求只有宿主内部入口，插件 SDK 暂无对应门面。
-                        from app.task.desktop_session_worker import (
-                            request_desktop_action,
-                        )
+                        from .compat.desktop_session import request_desktop_action
 
                         async with _launcher_automation():
                             code, outcome = await request_desktop_action(
@@ -2459,8 +2455,7 @@ class AutoProxyTask(AutoProxyWorker):
             return self.original_game_settings
         self.original_game_settings_read = True
 
-        # TODO(插件化)：注册表分辨率读取在宿主 MaaFW 内部模块，SDK 无门面，保持原导入。
-        from app.task.MaaFW.tools.embedded.game_resolution import (
+        from .compat.maafw_game_resolution import (
             read_unity_display_type,
             read_unity_resolution,
         )
@@ -3306,8 +3301,7 @@ class AutoProxyTask(AutoProxyWorker):
 
         if self.emulator is None:
             if (desktop := desktop_process_target.get()) is not None:
-                # TODO(插件化)：桌面分身动作请求只有宿主内部入口，插件 SDK 暂无对应门面。
-                from app.task.desktop_session_worker import request_desktop_action
+                from .compat.desktop_session import request_desktop_action
 
                 game_path = (
                     client_executable_path(self.script_config)

@@ -19,9 +19,31 @@
 1. 在 `src/maaend_adapter/` 建立包结构，所有模块文件名改为 snake_case。
 2. 原 `app/core/notify/formats/maaend.py` 与 `app/services/common/endfield_launcher.py` 属于本专项，
    分别迁入 `notifications.py` 与 `tools/endfield_launcher.py`。
-3. 叶子模块的宿主导入改为 `auto_mas_core` 门面：工具层、资源解析、日志采集规则、奖励统计、
-   通知、备份归档与恢复、配置服务、HTTP 路由、安装更新。
-4. 保留 `app.*` 导入的文件只剩执行层与配置模型，见第三节。
+3. 叶子模块的宿主导入改为 `auto_mas_core` 已导出的 host 模块：工具层、资源解析、日志采集规则、
+   奖励统计、通知、备份归档与恢复、配置服务、HTTP 路由、安装更新。
+4. `auto_mas_core` 还没有导出的少量宿主能力集中在 `compat/`（见 1.1），不向主程序的
+   `plugins/auto_mas_core` 添加文件；主仓 SDK 由维护者独立发版。
+
+### 1.1 SDK 边界与 compat 层
+
+插件代码只 import `auto_mas_core` / `auto_mas_core.host.*` 和插件自己的模块。下面这些宿主能力
+SDK 5.9.0b1 没有导出，先放在 `src/maaend_adapter/compat/` 里按需转发；每个文件都写了目标模块与
+待删条件，主仓 SDK 补齐后逐个删除并改回 SDK 导入：
+
+| compat 文件 | 转发目标 | 用途 |
+| --- | --- | --- |
+| `client.py` | `app.task.client` | 游戏客户端可执行文件、启动器路径、客户端进程 |
+| `desktop_session.py` | `app.task.desktop_session_worker` | 桌面分身动作请求 |
+| `notify_report.py` | `app.core.notify.report` | 账号结果与推送日志排版 |
+| `ocr.py` | `app.tools.common.ocr` | 启动器画面文字识别 |
+| `error_screenshot.py` | `app.tools.common.error_screenshot` | 失败截图存档 |
+| `game_window.py` | `app.utils.common.game_window` | 窗口查找、激活、截图 |
+| `zip_range.py` / `zip_delta.py` | `app.utils.common.zip_*` | 增量包重组与补丁 |
+| `maafw_*.py` | `app.task.MaaFW.tools.*` | MaaFW 接口模型、任务选项、预任务计划、内嵌会话、分辨率、增量读取 |
+
+有 SDK 现成入口的能力不要进 compat：`io`、`log_box`、`process`（含 operations/session/manager）、
+`log.sources`、`script_install`、`services_common_update.transport`、`devices.task` 都直接从
+`auto_mas_core.host.*` / `auto_mas_core.devices.task` 取。
 
 ## 二、文件名映射
 
@@ -42,11 +64,11 @@
 | 文件 | 仍然导入 | 迁移去向 |
 | --- | --- | --- |
 | `expander.py` | `app.models.config`（MaaEnd 配置类）、`app.task.manager_base.ScriptManagerBase` | 配置迁到 `config/`，编排改写为 `UserExpander` |
-| `auto_proxy.py` | `app.models.config`、`app.task.base.ScriptAutoProxyBase`、`app.task.MaaFW.tools.*` | 改写为 `AutoProxyWorker`；MaaFW 依赖改走能力门面 |
+| `auto_proxy.py` | `app.models.config`、`app.task.base.ScriptAutoProxyBase`、`app.task.MaaFW.tools.*` | 改写为 `AutoProxyWorker`；MaaFW 依赖先走 `compat/maafw_*.py` |
 | `config_session.py` | `app.models.config`、`app.models.task.TaskExecuteBase/ScriptItem` | 改写为 `ScriptConfigWorker` / `ScriptViewWorker` |
 | `manual_update.py` | `app.models.config`、`app.models.task.TaskExecuteBase` | 改写为维护任务接口 |
 | `config_service.py`、`tools/script_update.py` | `app.models.config.MaaEndConfig` | 配置模型迁出后改为相对导入 |
-| `tools/package_download.py` | `app.task.MaaFW.tools.core.project_update.*` | 由 MaaFW 能力提供方或 SDK 门面提供 |
+| `tools/package_download.py` | `app.task.MaaFW.tools.core.project_update.*` | 由 MaaFW 能力提供方或 SDK 补齐后替换 `compat/maafw_project_update.py` |
 
 ## 四、剩余工作（按依赖顺序）
 

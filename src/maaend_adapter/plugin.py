@@ -21,17 +21,14 @@
 """
 
 from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
+from fastapi import APIRouter
+
+from .api import router as maaend_router
 
 # TODO(插件化)：分辨率与显示模式的读取属于 MaaFW 能力（读终末地 PC 客户端这个 Unity
 # 游戏写在注册表里的项），此处经 SDK 门面直取 MaaFW 模块；MaaFW 插件提供能力接口后
 # 应改从能力接口取，不再直连它的模块。
-from auto_mas_core.host.task_maafw_game_resolution import (
-    read_unity_display_type,
-    read_unity_resolution,
-)
-from fastapi import APIRouter
-
-from .api import router as maaend_router
+from .compat.maafw_game_resolution import read_unity_display_type, read_unity_resolution
 from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander

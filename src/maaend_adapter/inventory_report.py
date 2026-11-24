@@ -10,10 +10,14 @@ from html import unescape
 from pathlib import Path
 
 from auto_mas_core.host.utils import LOG_TYPE_NORMAL, get_logger
-from auto_mas_core.host.utils_common_io import ConfigCorruptedError, read_dict_file
-from auto_mas_core.host.utils_common_log_box import LogEntry
+from auto_mas_core.host.utils import io as _utils_io
+from auto_mas_core.host.utils import log_box as _log_box
 
 from .push_log import _parse_line_ts, maaend_plain_text
+
+ConfigCorruptedError = _utils_io.ConfigCorruptedError
+read_dict_file = _utils_io.read_dict_file
+LogEntry = _log_box.results.LogEntry
 
 logger = get_logger("MaaEnd 奖励统计")
 

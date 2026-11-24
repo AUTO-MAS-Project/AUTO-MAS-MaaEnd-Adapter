@@ -10,8 +10,10 @@ MaaEnd 是终末地的 MaaFramework PI V2 项目，外置图形界面由 MXU 承
 
 迁移已完成到插件执行接口，但宿主仍内置同名类型，暂时不能在插件中心启用：
 
-- 已完成：目录与包结构、文件名规范化、叶子模块（工具层、资源解析、日志采集、通知、
-  备份恢复、配置服务、HTTP 路由）的宿主导入改为 `auto_mas_core` 门面。
+- 已完成：目录与包结构、文件名规范化，叶子模块（工具层、资源解析、日志采集、通知、
+  备份恢复、配置服务、HTTP 路由）只使用 `auto_mas_core` 已导出的接口。
+- 已完成：SDK 尚未导出的少量宿主能力集中收在 `src/maaend_adapter/compat/`，逐个标注
+  目标模块与待删条件，不改主程序的 `plugins/auto_mas_core`。
 - 已完成：托管、账号与计划表配置迁到 `config/` 包，基类换成 `ScriptEntry` / `UserEntry` /
   `PlanEntry`，旧 `UserData` 与字段形状有迁移入口与测试。
 - 已完成：执行层改为插件接口——`MaaEndExpander(UserExpander)`、`AutoProxyTask(AutoProxyWorker)`、

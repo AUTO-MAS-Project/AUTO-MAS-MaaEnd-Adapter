@@ -28,7 +28,7 @@ from time import time_ns
 
 from auto_mas_core import TaskMode, UserExpander
 from auto_mas_core.adapters.script import game_update_result, point
-from auto_mas_core.host import core_notify_report as _node_report
+from auto_mas_core.devices.task import game_device_id, game_target_id
 from auto_mas_core.host.config import ConfigCollection, config_manager
 from auto_mas_core.host.core import (
     Config,
@@ -53,9 +53,7 @@ from auto_mas_core.host.models_notification_report import (
 )
 from auto_mas_core.host.models_schema import DownloadRequest, WSTaskNoticeData
 from auto_mas_core.host.services import script_install
-from auto_mas_core.host.task_client import client_executable_path, client_launcher_path
 from auto_mas_core.host.task_emulator_core import close_emulator
-from auto_mas_core.host.task_game import game_device_id, game_target_id
 from auto_mas_core.host.task_maintenance import get_user_maintenance
 from auto_mas_core.host.task_proxy_helpers import push_dispatch_log
 from auto_mas_core.host.utils import (
@@ -67,11 +65,13 @@ from auto_mas_core.host.utils import (
     log_box,
 )
 from auto_mas_core.host.utils import io as _utils_io
+from auto_mas_core.host.utils import process as _host_process
 from auto_mas_core.host.utils_common_fluxdown_cli import FluxdownCancelUnconfirmed
-from auto_mas_core.host.utils_common_process_session import desktop_process_target
 
 from . import notifications as _format_maaend
 from .auto_proxy import AutoProxyTask
+from .compat import notify_report as _node_report
+from .compat.client import client_executable_path, client_launcher_path
 from .config import MaaEndConfig, MaaEndUserConfig
 from .config_session import ScriptConfigTask, ScriptViewTask, maaend_config_base
 from .resource_loader import MaaEndResourceLoader, load_maaend_controller_protocol
@@ -80,6 +80,8 @@ from .tools import script_update
 from .tools.backup_archive import archive_native_backup
 from .tools.managed_recovery import MaaEndInstallAdapter
 from .tools.update import ensure_game_updated
+
+desktop_process_target = _host_process.session.desktop_process_target
 
 logger = get_logger("MaaEnd 调度器")
 

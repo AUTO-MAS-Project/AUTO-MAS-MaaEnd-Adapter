@@ -16,7 +16,10 @@ from ctypes import wintypes
 from pathlib import Path
 
 import psutil
-from auto_mas_core.host.utils_common_process_operations import iter_processes
+from auto_mas_core.host.utils import process as _host_process
+
+iter_processes = _host_process.operations.iter_processes
+
 
 logger = logging.getLogger("终末地启动")
 
