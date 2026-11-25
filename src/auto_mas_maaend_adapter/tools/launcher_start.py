@@ -166,23 +166,8 @@ _UPDATE_CLICK_RETRY_LIMIT = 3
 # ── 窗口 / 进程定位 ─────────────────────────────────────────────────────
 
 
-def _find_process_hwnd(process_name: str) -> int | None:
-    """按所属进程名找最大可见窗口；不存在返回 None。"""
-    return _game_window.find_window(process_name)
-
-
 def _find_game_hwnd() -> int | None:
     return _game_window.find_window(_GAME_PROCESS)
-
-
-def _root_prefix(launcher_path: Path) -> str:
-    """启动器安装根目录树前缀（casefold、带尾部分隔符），用于 exe 归属判定。"""
-    return (
-        str(_service_endfield_launcher.launcher_root(launcher_path))
-        .casefold()
-        .rstrip("\\/")
-        + "\\"
-    )
 
 
 def _root_prefix(launcher_path: Path) -> str:

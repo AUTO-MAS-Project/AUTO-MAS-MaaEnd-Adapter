@@ -314,25 +314,14 @@ class MaaEndUserConfig(UserEntry):
 
     Task: TaskFields = Field(default_factory=TaskFields)
     Notify_CustomWebhooks: ConfigCollection[Webhook] = collection(Webhook)
-    _maaend_essence_location_labels: dict = PrivateAttr(default_factory=dict)
     _maaend_crisis_drills_labels: dict[str, str] = PrivateAttr(default_factory=dict)
 
     def cache_maaend_resource(self, resource: dict[str, Any]) -> None:
         """缓存 MaaEnd 动态资源的展示文本。"""
-        self._maaend_essence_location_labels = {
-            str(item["value"]): str(item["label"])
-            for item in resource.get("essenceLocations", [])
-            if isinstance(item, dict) and item.get("value") is not None
-        }
         self._maaend_crisis_drills_labels = {
             str(item["value"]): str(item["label"])
             for item in resource.get("crisisDrills", [])
         }
-
-    def _get_maaend_location_label(self, value: str) -> str:
-        if not value:
-            return ""
-        return self._maaend_essence_location_labels.get(value, value)
 
     def get_effective_sanity_task_key(self) -> tuple[dict[str, Any], str]:
         """获取当前生效的完整 MaaEnd key。"""

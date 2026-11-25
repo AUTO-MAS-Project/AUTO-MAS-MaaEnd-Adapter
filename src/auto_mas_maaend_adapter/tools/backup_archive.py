@@ -270,13 +270,6 @@ _ESSENCE_LOCATION_LABELS = {
 """枚举字段取值中文词表（源码 zh_cn 词表固化，与 MXU GUI 显示一致、不依赖
 本体运行时；未知取值显示原文）"""
 
-_SANITY_CURRENT_FIELD = {
-    "OperatorProgression": "OperatorProgression",
-    "WeaponProgression": "WeaponProgression",
-    "CrisisDrills": "CrisisDrills",
-}
-"""理智任务类型 → 当前取值所在的 Task 字段（Essence 走基质选项单独合成）"""
-
 # 奖励组选项仅对带 rewards 标记的任务取值有意义（对齐编辑页显隐逻辑）
 _REWARDS_OPTION_REWARDS_FLAG = {
     "OperatorEXP": True,
@@ -382,12 +375,6 @@ def archive_mas_backup(
         _utils_config_archive.write_backup_base(dest, base)
     logger.info(f"账号 {user_id} 的 MAS 配置已归档: {dest.name}")
     return dest
-
-
-def list_mas_backups(script_id: str, user_id: str) -> list[str]:
-    """账号池的全部归档时间戳（倒序，最新在前）。"""
-
-    return _utils_config_archive.list_times(mas_backup_root(script_id, user_id))
 
 
 def get_mas_backup_dir(script_id: str, user_id: str, ts: str) -> Path | None:
@@ -507,12 +494,6 @@ def archive_native_backup(config_path: Path, force: bool = False) -> Path | None
         return None
     logger.info(f"MaaEnd 原生配置已归档: {dest.name}")
     return dest
-
-
-def list_native_backups(config_path: str | Path) -> list[str]:
-    """MaaEnd 原生配置全部归档时间戳（倒序，最新在前）。"""
-
-    return _utils_config_archive.list_times(native_backup_root(config_path))
 
 
 def get_native_backup_dir(config_path: str | Path, ts: str) -> Path | None:
