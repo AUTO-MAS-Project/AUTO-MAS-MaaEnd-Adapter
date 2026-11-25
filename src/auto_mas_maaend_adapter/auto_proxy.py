@@ -13,7 +13,7 @@
 #   along with AUTO-MAS. If not, see <https://www.gnu.org/licenses/>.
 #   Contact: DLmaster_361@163.com
 # TODO(插件化)：MaaFramework 的接口模型、任务选项与预任务计划由 MaaFW 适配器拆出的
-# auto-mas-maafw-interface 库提供；桌面分身动作请求还没有对应库，暂经 compat/desktop_session.py
+# auto-mas-maafw-interface 库提供。
 # 转发宿主模块，宿主或 MaaFW 服务提供接口后删除。
 import asyncio
 import io
@@ -136,7 +136,6 @@ from .update_takeover import (
 log_source = _log.sources
 has_process_window = _host_process.manager.has_process_window
 wait_process_window_ready = _host_process.manager.wait_process_window_ready
-desktop_process_target = _host_process.session.desktop_process_target
 
 logger = get_logger("MaaEnd 自动代理")
 
@@ -546,9 +545,8 @@ class AutoProxyTask(AutoProxyWorker):
         self.original_game_settings_read = False
         self.launcher_game_setting_options: dict[str, Any] = {}
         self.launcher_runtime_path: Path | None = None
-        desktop = desktop_process_target.get()
-        # 此登记表只在主 MAS 进程内使用，None 恒指该进程所在的主会话。
-        self.launcher_session_id = desktop.session_id if desktop is not None else None
+        # 启动器登记表只在主 MAS 进程内使用。
+        self.launcher_session_id: int | None = None
         self.launcher_owner: object = object()
         self.curdate = datetime.now(tz=UTC4).strftime("%Y-%m-%d")
         self.auto_collect_run_at: datetime | None = None
@@ -834,7 +832,6 @@ class AutoProxyTask(AutoProxyWorker):
                 cwd=self.maaend_root_path,
                 timeout=timeout,
                 kill_tree_on_cancel=True,
-                retain_desktop_descendants=launching,
             )
         except asyncio.TimeoutError as error:
             raise RuntimeError(
@@ -891,12 +888,7 @@ class AutoProxyTask(AutoProxyWorker):
         return bool(win32gui.FindWindow("UnityWndClass", "Endfield"))
 
     async def _game_window_in_session(self) -> bool:
-        if (desktop := desktop_process_target.get()) is None:
-            return self._game_window_present()
-        from .compat.desktop_session import request_desktop_action
-
-        _, present = await request_desktop_action(desktop, "maaend_game_window", {})
-        return bool(present)
+        return self._game_window_present()
 
     async def _mas_launch_game_directly(self) -> None:
         """通过现有直启入口拉起游戏，也用于更新确认后的重新启动。"""
@@ -911,24 +903,6 @@ class AutoProxyTask(AutoProxyWorker):
         game_path = str(client_executable_path(self.script_config))
         logger.info(f"启动终末地: {game_path}")
         point(self, "start_game")
-        if (desktop := desktop_process_target.get()) is not None:
-            from .compat.desktop_session import request_desktop_action
-
-            async with asyncio.timeout(60):
-                await request_desktop_action(
-                    desktop,
-                    "maaend_direct_launch",
-                    {
-                        "launcher_path": self._launcher_path_text(),
-                        "game_path": game_path,
-                        "game_arguments": str(self.script_config.Game.Arguments),
-                    },
-                )
-            await wait_process_window_ready(
-                ProcessInfo(name=_MAAEND_CLIENT_PROCESS),
-                int(self.script_config.Game.WaitTime),
-            )
-            return
         command = _game_launch_command(
             launcher_path=self._launcher_path_text(),
             game_path=game_path,
@@ -1002,7 +976,6 @@ class AutoProxyTask(AutoProxyWorker):
                     "--reason=4",
                     breakaway=True,
                     owned=False,
-                    retain_desktop_descendants=True,
                 )
             # 启动器交互在后台线程内同步执行，on_log 契约是同步回调；push_dispatch_log
             # 是 async 函数，须经 run_coroutine_threadsafe 调度回事件循环
@@ -1013,24 +986,11 @@ class AutoProxyTask(AutoProxyWorker):
                     push_dispatch_log(self.script_info, line), launch_loop
                 )
 
-            if (desktop := desktop_process_target.get()) is not None:
-                from .compat.desktop_session import request_desktop_action
-
-                code, screenshots = await request_desktop_action(
-                    desktop,
-                    "maaend_launch",
-                    {"launcher_path": str(launcher_path)},
-                    on_log=_push_launch_log,
-                )
-                for screenshot in screenshots:
-                    self._record_error_screenshot(Path(screenshot))
-                launched = code == 0
-            else:
-                launched = await async_start_game_via_launcher(
-                    launcher_path,
-                    on_log=_push_launch_log,
-                    on_error_screenshot=self._record_error_screenshot,
-                )
+            launched = await async_start_game_via_launcher(
+                launcher_path,
+                on_log=_push_launch_log,
+                on_error_screenshot=self._record_error_screenshot,
+            )
             if not launched:
                 raise RuntimeError("终末地启动器未能拉起游戏，请人工确认启动器状态")
             wait_time = int(self.script_config.Game.WaitTime)
@@ -1844,31 +1804,12 @@ class AutoProxyTask(AutoProxyWorker):
 
                 try:
                     await self.script_info.set_log("正在由 MAS 自建流程切换账号...")
-                    if (desktop := desktop_process_target.get()) is not None:
-                        from .compat.desktop_session import request_desktop_action
-
-                        async with _launcher_automation():
-                            code, outcome = await request_desktop_action(
-                                desktop,
-                                "maaend_login",
-                                {"account": account_id},
-                                on_restart=self._restart_game_after_update,
-                            )
-                        for screenshot in outcome["screenshots"]:
-                            self._record_error_screenshot(Path(screenshot))
-                        if code != 0:
-                            raise RuntimeError(
-                                f"分身内终末地账号切换失败：{outcome['error']}"
-                            )
-                        if outcome["notReady"] is not None:
-                            raise LoginNotReadyError(outcome["notReady"])
-                    else:
-                        await login(
-                            account_id,
-                            self.emulator_info,
-                            restart_game=self._restart_game_after_update,
-                            on_error_screenshot=self._record_error_screenshot,
-                        )
+                    await login(
+                        account_id,
+                        self.emulator_info,
+                        restart_game=self._restart_game_after_update,
+                        on_error_screenshot=self._record_error_screenshot,
+                    )
                 except Exception as error:
                     keep_game_for_login_retry = (
                         isinstance(error, LoginNotReadyError) and i < run_times_limit
@@ -1929,7 +1870,6 @@ class AutoProxyTask(AutoProxyWorker):
                 self.maaend_instance_name,
                 "--quit-after-run",
                 stdout=asyncio.subprocess.PIPE,
-                retain_desktop_descendants=True,
             )
             # 只有进程真的起来了才算一次 MXU 启动；否则 debug/ 里还是上一轮的残留。
             self._mxu_launch_count += 1
@@ -3299,21 +3239,6 @@ class AutoProxyTask(AutoProxyWorker):
             return None
 
         if self.emulator is None:
-            if (desktop := desktop_process_target.get()) is not None:
-                from .compat.desktop_session import request_desktop_action
-
-                game_path = (
-                    client_executable_path(self.script_config)
-                    or self.script_config.Game.Path
-                )
-                if game_path is None:
-                    return None
-                _, path = await request_desktop_action(
-                    desktop,
-                    "maaend_failure_screenshot",
-                    {"game_path": str(game_path)},
-                )
-                return Path(path) if path else None
             hwnd = await self._failure_window_handle()
             if hwnd is None:
                 return None

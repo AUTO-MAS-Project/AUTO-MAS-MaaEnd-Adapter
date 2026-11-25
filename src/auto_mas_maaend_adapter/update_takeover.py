@@ -277,7 +277,7 @@ async def _run_update_session(
         try:
             launched_at = time.time()
             await process_manager.open_process(
-                executable, cwd=root_path, retain_desktop_descendants=True
+                executable, cwd=root_path
             )
             if on_launched is not None:
                 on_launched()

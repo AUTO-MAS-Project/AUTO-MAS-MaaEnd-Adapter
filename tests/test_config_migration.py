@@ -47,3 +47,10 @@ def test_plan_name_projects_to_info():
     assert plan.normalize_payload(
         {"ALL": {"SanityTaskType": "OperatorProgression", "OperatorProgression": "OperatorEXP"}}
     )["ALL"]["Key"]["SanityTaskType"] == "OperatorProgression"
+
+def test_script_payload_drops_legacy_execution_session():
+    normalized = MaaEndConfig.normalize_payload(
+        {"Run": {"ExecutionSession": "desktop", "HardTimeLimit": 30}}
+    )
+    assert "ExecutionSession" not in normalized["Run"]
+    assert normalized["Run"]["HardTimeLimit"] == 30

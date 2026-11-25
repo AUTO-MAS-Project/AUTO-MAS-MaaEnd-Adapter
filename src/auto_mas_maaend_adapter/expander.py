@@ -65,7 +65,6 @@ from auto_mas_core.host.utils import (
     log_box,
 )
 from auto_mas_core.host.utils import io as _utils_io
-from auto_mas_core.host.utils import process as _host_process
 from auto_mas_core.host.utils_common_fluxdown_cli import FluxdownCancelUnconfirmed
 
 from . import notifications as _format_maaend
@@ -80,8 +79,6 @@ from .tools import script_update
 from .tools.backup_archive import archive_native_backup
 from .tools.managed_recovery import MaaEndInstallAdapter
 from .tools.update import ensure_game_updated
-
-desktop_process_target = _host_process.session.desktop_process_target
 
 logger = get_logger("MaaEnd 调度器")
 
@@ -205,12 +202,6 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             logger.warning(
                 f"MaaEnd 控制器配置暂时读取失败，先交给安装恢复处理: {error}"
             )
-
-        if (
-            desktop_process_target.get() is not None
-            and self.controller_protocol != "Win32"
-        ):
-            return "MaaEnd 桌面分身仅支持 PC 控制器"
 
         if self.controller_protocol == "Adb" and (
             game_target_id(script_config) == "-"

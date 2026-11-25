@@ -51,13 +51,6 @@ MaaEndInstallPath = Annotated[
 """保留更新中断时暂缺的安装路径，供恢复入口定位相邻的原安装备份。"""
 
 
-class DesktopSessionRunFields(ConfigGroup):
-    """支持桌面分身的托管运行设置。"""
-
-    ExecutionSession: Literal["main", "desktop"] = Field(
-        default="main", description="单独启动托管时使用的 Windows 会话"
-    )
-
 class MaaEndConfig(ScriptEntry):
     related_config: ClassVar = {}
 
@@ -152,7 +145,7 @@ class MaaEndConfig(ScriptEntry):
 
     Info: InfoFields = Field(default_factory=InfoFields)
 
-    class RunFields(DesktopSessionRunFields):
+    class RunFields(ConfigGroup):
         AccountSwitchMethod: Literal["MAS", "MAAEND"] = Field(
             default_factory=lambda: "MAAEND",
             description="账号切换方式（默认使用 MAAEND，MAS 为兼容入口）",
@@ -217,6 +210,9 @@ class MaaEndConfig(ScriptEntry):
         sub = data.get("SubConfigsInfo")
         if isinstance(sub, dict) and "UserData" in sub:
             sub["users"] = sub.pop("UserData")
+        run_data = data.get("Run")
+        if isinstance(run_data, dict):
+            run_data.pop("ExecutionSession", None)
         game_data = data.get("Game") if isinstance(data, dict) else None
         migrated = (
             isinstance(game_data, dict)
