@@ -13,7 +13,8 @@ MaaEnd 是《明日方舟：终末地》的 MaaFramework PI V2 项目，外置�
 - 计划：周计划、任务选项、难度、采集与理智配置。
 - 更新：MaaEnd 程序更新接管、全量/增量更新与启动器更新。
 - 备份恢复：MAS 账号配置与 MaaEnd 原生 `config/` 的归档、预览、恢复。
-- 运行：日志采集、失败截图、通知、奖励与库存统计。
+- 运行：日志采集、失败截图、通知、奖励与库存统计。只跑主会话；桌面分身
+  （多开 Windows 会话）暂不提供，配置里也不再保留 `Run.ExecutionSession`。
 
 ## 环境
 
@@ -39,13 +40,13 @@ src/auto_mas_maaend_adapter/
 ├── expander.py            # 托管级编排
 ├── config_service.py      # 动态选项、启动器识别、日志包服务
 ├── config_session.py      # 脚本配置/查看会话
+├── config/                # 托管/账号/计划三类配置模型与旧载荷迁移
 ├── resource_loader.py     # interface.json、任务定义与词表解析
-├── manual_update.py       # 手动检查更新
+├── manual_update.py       # 手动检查更新（等宿主维护入口，当前未接线）
 ├── update_takeover.py     # MXU 自身更新会话接管
 ├── notifications.py       # 通知图片与统计/库存负载
 ├── push_log.py            # 日志采集规则
 ├── inventory_report.py    # 奖励与库存展示
-├── compat/                # SDK 尚未导出的宿主能力转发
 └── tools/                 # 安装更新、启动器、登录、备份恢复、日志包等原语
 ```
 
@@ -74,7 +75,7 @@ AUTO_MAS_HOST_SOURCE=/path/to/AUTO-MAS \
 ```
 
 插件只依赖 `auto-mas-core` 与 `auto-mas-maafw-interface` 已导出的接口，不修改主程序的
-`plugins/auto_mas_core`；宿主尚未导出的能力集中在 `compat/`，待 SDK 补齐后删除。
+`plugins/auto_mas_core`；宿主能力一律经 `auto_mas_core.host` 门面取用，不直接导入 `app.*`。
 
 ## 许可
 

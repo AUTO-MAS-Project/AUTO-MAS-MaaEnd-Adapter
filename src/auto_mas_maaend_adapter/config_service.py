@@ -158,6 +158,9 @@ class MaaEndConfigService:
             )
         return options
 
+    # 下面两个回调来自宿主脚本配置契约（保存前校验、从脚本目录导入配置）。
+    # 插件的 ScriptTypeDecl 还没有对应声明位，宿主目前只认内置专项的 handler，
+    # 因此它们暂时没有调用点；宿主补齐声明位后接上，不要当死代码删掉。
     @staticmethod
     def validate_update(data: dict[str, Any]) -> None:
         launcher_path = (data.get("Game") or {}).get("LauncherPath")
