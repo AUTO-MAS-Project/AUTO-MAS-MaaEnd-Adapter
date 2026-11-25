@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from auto_mas_core.host.config import ConfigCollection, ConfigEntry
+from auto_mas_core.host.task_client import client_executable_path
 from auto_mas_core.host.utils import (
     BASE_INDEPENDENT,
     BASE_SHARED,
@@ -32,7 +33,6 @@ from auto_mas_core.host.utils import (
 )
 from auto_mas_core.host.utils import io as _utils_io
 
-from .compat.client import client_executable_path
 from .config import MaaEndConfig as RuntimeMaaEndConfig
 from .resource_loader import get_loaded_maaend_options, try_load_maaend_options
 from .tools import endfield_launcher as _service_endfield_launcher

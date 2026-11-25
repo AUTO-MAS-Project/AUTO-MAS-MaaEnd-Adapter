@@ -34,10 +34,10 @@ from auto_mas_core.host.core import Publisher
 from auto_mas_core.host.core_ws import protocol
 from auto_mas_core.host.models_schema import WSTaskNoticeData
 from auto_mas_core.host.models_task import ScriptItem, TaskExecuteBase
+from auto_mas_core.host.task_client import client_executable_path
 from auto_mas_core.host.task_proxy_helpers import push_dispatch_log
 from auto_mas_core.host.utils import get_logger
 
-from .compat.client import client_executable_path
 from .config import MaaEndConfig
 from .tools.update import ensure_game_updated
 

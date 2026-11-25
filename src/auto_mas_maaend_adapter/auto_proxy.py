@@ -49,6 +49,11 @@ from auto_mas_core.host.services import (
     capture_win32,
     execute_script_task,
 )
+from auto_mas_core.host.task_client import (
+    ClientProcess,
+    client_executable_path,
+    client_launcher_path,
+)
 from auto_mas_core.host.task_emulator_core import (
     close_emulator,
     resolve_device_ref,
@@ -94,11 +99,6 @@ from maafw_interface.runner.run_plan import (
 )
 
 from . import notifications as _format_maaend
-from .compat.client import (
-    ClientProcess,
-    client_executable_path,
-    client_launcher_path,
-)
 from .config_session import maaend_config_base, maaend_mas_config_dir
 from .inventory_report import (
     INVENTORY_REPORT_RULE,
@@ -2394,7 +2394,7 @@ class AutoProxyTask(AutoProxyWorker):
             return self.original_game_settings
         self.original_game_settings_read = True
 
-        from .compat.maafw_game_resolution import (
+        from auto_mas_core.host.task_maafw_game_resolution import (
             read_unity_display_type,
             read_unity_resolution,
         )

@@ -10,16 +10,18 @@ from functools import partial
 from pathlib import Path
 
 import httpx
+from auto_mas_core.host import utils_common_zip_delta as _zip_delta
+from auto_mas_core.host import utils_common_zip_range as _zip_range
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.core_downloads import download_file
 from auto_mas_core.host.services import script_install
 from auto_mas_core.host.services_common_update import transport
+from auto_mas_core.host.task_maafw_project_update import (
+    RangeHTTPReader,
+    RangeSpeedGuard,
+)
 from auto_mas_core.host.utils import get_logger
 from packaging.version import Version
-
-from ..compat import zip_delta as _zip_delta
-from ..compat import zip_range as _zip_range
-from ..compat.maafw_project_update import RangeHTTPReader, RangeSpeedGuard
 
 DownloadProgress = transport.DownloadProgress
 MAX_PATCH_BYTES = _zip_delta.MAX_PATCH_BYTES

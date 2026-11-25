@@ -52,14 +52,14 @@ from threading import Event
 
 import numpy as np
 import psutil
+from auto_mas_core.host import tools_error_screenshot as _tool_error_screenshot
+from auto_mas_core.host import tools_ocr as _tool_ocr
+from auto_mas_core.host import utils_common_game_window as _game_window
 from auto_mas_core.host.utils import IS_WINDOWS, get_logger
 from auto_mas_core.host.utils import display as _utils_display
 from auto_mas_core.host.utils import process as _host_process
 from PIL import Image
 
-from ..compat import error_screenshot as _tool_error_screenshot
-from ..compat import game_window as _game_window
-from ..compat import ocr as _tool_ocr
 from . import endfield_launcher as _service_endfield_launcher
 
 iter_processes = _host_process.operations.iter_processes

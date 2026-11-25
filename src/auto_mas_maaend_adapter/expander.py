@@ -29,6 +29,7 @@ from time import time_ns
 from auto_mas_core import TaskMode, UserExpander
 from auto_mas_core.adapters.script import game_update_result, point
 from auto_mas_core.devices.task import game_device_id, game_target_id
+from auto_mas_core.host import core_notify_report as _node_report
 from auto_mas_core.host.config import ConfigCollection, config_manager
 from auto_mas_core.host.core import (
     Config,
@@ -53,6 +54,7 @@ from auto_mas_core.host.models_notification_report import (
 )
 from auto_mas_core.host.models_schema import DownloadRequest, WSTaskNoticeData
 from auto_mas_core.host.services import script_install
+from auto_mas_core.host.task_client import client_executable_path, client_launcher_path
 from auto_mas_core.host.task_emulator_core import close_emulator
 from auto_mas_core.host.task_maintenance import get_user_maintenance
 from auto_mas_core.host.task_proxy_helpers import push_dispatch_log
@@ -69,8 +71,6 @@ from auto_mas_core.host.utils_common_fluxdown_cli import FluxdownCancelUnconfirm
 
 from . import notifications as _format_maaend
 from .auto_proxy import AutoProxyTask
-from .compat import notify_report as _node_report
-from .compat.client import client_executable_path, client_launcher_path
 from .config import MaaEndConfig, MaaEndUserConfig
 from .config_session import ScriptConfigTask, ScriptViewTask, maaend_config_base
 from .resource_loader import MaaEndResourceLoader, load_maaend_controller_protocol

@@ -21,15 +21,16 @@
 """
 
 from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
+
+# 分辨率与显示模式读的是终末地 PC 客户端（Unity）写在注册表里的项。
+from auto_mas_core.host.task_maafw_game_resolution import (
+    read_unity_display_type,
+    read_unity_resolution,
+)
 from fastapi import APIRouter
 
 from .api import router as maaend_router
 from .backup_api import router as backup_router
-
-# TODO(插件化)：分辨率与显示模式读的是终末地 PC 客户端（Unity）写在注册表里的项。
-# auto-mas-maafw-interface / native 目前没有导出这两个函数，暂经 compat 转发；MaaFW 适配器
-# 或对应库提供能力后删除 compat 文件。
-from .compat.maafw_game_resolution import read_unity_display_type, read_unity_resolution
 from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
@@ -83,7 +84,9 @@ class Plugin(ScriptAdapterPlugin):
         # 拆出前后共用同一个类型名：宿主仍内置 MaaEnd 时拒绝启用，避免两套同名类型并存。
         builtin = Config.ScriptConfig.entry_types.get("MaaEndConfig")
         if builtin is not None and builtin.__module__.startswith("app."):
-            raise RuntimeError("当前 AUTO-MAS 仍内置 MaaEnd 专项，请更新至已迁移 MaaEnd 的宿主")
+            raise RuntimeError(
+                "当前 AUTO-MAS 仍内置 MaaEnd 专项，请更新至已迁移 MaaEnd 的宿主"
+            )
         refs = {"PlanConfig": Config.PlanConfig, "games": Config.GameConfig}
         MaaEndConfig.related_config = refs
         MaaEndUserConfig.related_config = refs
