@@ -13,7 +13,6 @@ _reject_link = script_install._reject_link
 tree_hashes = script_install.tree_hashes
 
 
-
 def refresh_merged_pipelines(
     ready: Path,
     package: Path,

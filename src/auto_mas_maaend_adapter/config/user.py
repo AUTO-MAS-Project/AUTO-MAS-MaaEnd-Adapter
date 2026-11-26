@@ -440,12 +440,12 @@ class MaaEndUserConfig(UserEntry):
             _normalize_maaend_sanity_task_type(task_data)
         return data
 
-
     async def _activate_from_payload(self, payload, *, regenerate_uuids=False):
         """先迁移历史载荷，再交给配置框架激活节点与嵌套集合。"""
         await super()._activate_from_payload(
             type(self).normalize_payload(payload), regenerate_uuids=regenerate_uuids
         )
+
     @virtual_field("Info.Tag")
     def compute_Info_Tag(self):
         try:

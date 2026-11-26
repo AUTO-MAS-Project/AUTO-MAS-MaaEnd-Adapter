@@ -24,7 +24,7 @@ from copy import deepcopy
 from pathlib import Path as NativePath
 from typing import Annotated, ClassVar, Literal
 
-from auto_mas_core import ScriptEntry
+from auto_mas_core import DesktopSessionRunFields, ScriptEntry
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigGroup,
@@ -145,7 +145,7 @@ class MaaEndConfig(ScriptEntry):
 
     Info: InfoFields = Field(default_factory=InfoFields)
 
-    class RunFields(ConfigGroup):
+    class RunFields(DesktopSessionRunFields):
         AccountSwitchMethod: Literal["MAS", "MAAEND"] = Field(
             default_factory=lambda: "MAAEND",
             description="账号切换方式（默认使用 MAAEND，MAS 为兼容入口）",
@@ -183,6 +183,7 @@ class MaaEndConfig(ScriptEntry):
         )
 
     Run: RunFields = Field(default_factory=RunFields)
+
     class UpdateFields(ConfigGroup):
         TakeoverEnabled: bool = Field(
             default_factory=lambda: False,
@@ -212,7 +213,9 @@ class MaaEndConfig(ScriptEntry):
             sub["users"] = sub.pop("UserData")
         run_data = data.get("Run")
         if isinstance(run_data, dict):
-            run_data.pop("ExecutionSession", None)
+            # 分身会话偏好随配置保留；历史载荷缺字段或写了不认识的值时按 main 处理。
+            if run_data.get("ExecutionSession") not in ("main", "desktop"):
+                run_data["ExecutionSession"] = "main"
         game_data = data.get("Game") if isinstance(data, dict) else None
         migrated = (
             isinstance(game_data, dict)
@@ -223,12 +226,12 @@ class MaaEndConfig(ScriptEntry):
             game_data["RestoreResolution"] = "1920x1080"
         return data
 
-
     async def _activate_from_payload(self, payload, *, regenerate_uuids=False):
         """先迁移历史载荷，再交给配置框架激活节点与嵌套集合。"""
         await super()._activate_from_payload(
             type(self).normalize_payload(payload), regenerate_uuids=regenerate_uuids
         )
+
     users: ConfigCollection[MaaEndUserConfig] = collection(MaaEndUserConfig)
 
     class Metadata(ScriptEntry.Info):

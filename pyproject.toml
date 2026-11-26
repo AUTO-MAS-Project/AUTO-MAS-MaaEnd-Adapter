@@ -13,7 +13,8 @@ license-files = ["LICENSE"]
 authors = [{ name = "AUTO-MAS Team" }]
 keywords = ["auto-mas-plugin", "auto-mas-id:maaend_adapter"]
 dependencies = [
-  "auto-mas-core>=5.9.0b1,<6",
+  # 分身接口（current_desktop_target / request_desktop_action）随 5.10.0b1 提供。
+  "auto-mas-core>=5.10.0b1,<6",
   # MaaFramework 的 interface 解析、任务选项与预任务计划由 MaaFW 适配器拆出的库提供。
   "auto-mas-maafw-interface>=0.2.0,<0.3",
 ]

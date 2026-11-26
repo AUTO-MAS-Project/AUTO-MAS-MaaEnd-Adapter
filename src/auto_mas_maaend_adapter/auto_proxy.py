@@ -23,6 +23,7 @@ import shlex
 import sys
 import tempfile
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -31,7 +32,12 @@ from time import monotonic, time, time_ns
 from typing import Any
 
 from auto_mas_core import AutoProxyWorker
-from auto_mas_core.adapters.script import begin_attempt, point
+from auto_mas_core.adapters.script import (
+    begin_attempt,
+    current_desktop_target,
+    point,
+    request_desktop_action,
+)
 from auto_mas_core.devices.task import game_device_id
 from auto_mas_core.host.core import Config, Notify, Publisher
 from auto_mas_core.host.core_history import aggregate_data
@@ -138,6 +144,9 @@ has_process_window = _host_process.manager.has_process_window
 wait_process_window_ready = _host_process.manager.wait_process_window_ready
 
 logger = get_logger("MaaEnd 自动代理")
+
+# 分身动作里带上插件包根目录：分身进程据此把插件包加进导进路径再导进动作实现。
+_PLUGIN_PATH = str(Path(__file__).resolve().parents[1])
 
 _MAAEND_ACCOUNT_SWITCH_TASK = "AccountSwitch"
 _MAAEND_ANDROID_OPEN_GAME_TASK = "AndroidOpenGame"
@@ -491,7 +500,8 @@ class AutoProxyTask(AutoProxyWorker):
         self.push_log: list[tuple[str, str, float]] = []
         self.push_log_mode = "汇总"
         # 后台写入句柄：替代旧基类的 callbacks.submit 排队桥。
-        self._pending_writes: set[asyncio.Task] = set()
+        self._write_queue: deque[Any] = deque()
+        self._write_consumer: asyncio.Task | None = None
         # prepare() 是否走完；check 未通过或跳过时收尾据此跳过资源清理。
         self.prepared = False
         # check 判为跳过时的原因：跳过不走异常路径，主流程与收尾据此提前返回。
@@ -545,8 +555,10 @@ class AutoProxyTask(AutoProxyWorker):
         self.original_game_settings_read = False
         self.launcher_game_setting_options: dict[str, Any] = {}
         self.launcher_runtime_path: Path | None = None
-        # 启动器登记表只在主 MAS 进程内使用。
-        self.launcher_session_id: int | None = None
+        self._launcher_started_at: float | None = None
+        desktop = current_desktop_target()
+        # 此登记表只在主 MAS 进程内使用，None 恒指该进程所在的主会话。
+        self.launcher_session_id = desktop.session_id if desktop is not None else None
         self.launcher_owner: object = object()
         self.curdate = datetime.now(tz=UTC4).strftime("%Y-%m-%d")
         self.auto_collect_run_at: datetime | None = None
@@ -577,14 +589,28 @@ class AutoProxyTask(AutoProxyWorker):
         与其写入发生在同一事件循环，直接建任务即可，句柄在此统一等待，
         收尾前调用 _drain_writes()，避免最后一次写入丢失。
         """
-        task = asyncio.create_task(coroutine)
-        self._pending_writes.add(task)
-        task.add_done_callback(self._pending_writes.discard)
+        self._write_queue.append(coroutine)
+        if self._write_consumer is None or self._write_consumer.done():
+            self._write_consumer = asyncio.create_task(self._consume_writes())
+
+    async def _consume_writes(self) -> None:
+        """单消费者顺序落盘；与旧基类的回调桥一致，写入失败只记日志。"""
+        try:
+            while self._write_queue:
+                coroutine = self._write_queue.popleft()
+                try:
+                    await coroutine
+                except Exception as error:
+                    logger.opt(exception=error).warning("后台写入失败")
+        finally:
+            while self._write_queue:
+                self._write_queue.popleft().close()
 
     async def _drain_writes(self) -> None:
-        """等待已排队的后台写入结束；写入自身失败不改变业务结论。"""
-        while self._pending_writes:
-            await asyncio.gather(*tuple(self._pending_writes), return_exceptions=True)
+        """等待队列消费完；写入自身失败不改变业务结论。"""
+        while self._write_consumer is not None:
+            task = self._write_consumer
+            await asyncio.gather(task, return_exceptions=True)
 
     async def run_user_scripts_before(self) -> None:
         """执行账号级任务前脚本；每账号一次，先于全部重试。"""
@@ -832,6 +858,7 @@ class AutoProxyTask(AutoProxyWorker):
                 cwd=self.maaend_root_path,
                 timeout=timeout,
                 kill_tree_on_cancel=True,
+                retain_desktop_descendants=launching,
             )
         except asyncio.TimeoutError as error:
             raise RuntimeError(
@@ -888,14 +915,20 @@ class AutoProxyTask(AutoProxyWorker):
         return bool(win32gui.FindWindow("UnityWndClass", "Endfield"))
 
     async def _game_window_in_session(self) -> bool:
-        return self._game_window_present()
+        if executable := client_executable_path(self.script_config):
+            return await has_process_window(_MAAEND_CLIENT_PROCESS, exe=str(executable))
+        if not await has_process_window(_MAAEND_CLIENT_PROCESS):
+            return False
+        if (desktop := current_desktop_target()) is None:
+            return self._game_window_present()
+        _, present = await request_desktop_action(
+            desktop, "maaend_game_window", {"plugin_path": _PLUGIN_PATH}
+        )
+        return bool(present)
 
     async def _mas_launch_game_directly(self) -> None:
         """通过现有直启入口拉起游戏，也用于更新确认后的重新启动。"""
-        if (
-            await has_process_window(_MAAEND_CLIENT_PROCESS)
-            and await self._game_window_in_session()
-        ):
+        if await self._game_window_in_session():
             logger.info("检测到终末地客户端已运行，准备由 MAS 执行账号切换")
             return
         # 进程残留但窗口已消失（如更新重启失败）：清掉残留后重新拉起
@@ -903,6 +936,23 @@ class AutoProxyTask(AutoProxyWorker):
         game_path = str(client_executable_path(self.script_config))
         logger.info(f"启动终末地: {game_path}")
         point(self, "start_game")
+        if (desktop := current_desktop_target()) is not None:
+            async with asyncio.timeout(60):
+                await request_desktop_action(
+                    desktop,
+                    "maaend_direct_launch",
+                    {
+                        "launcher_path": self._launcher_path_text(),
+                        "game_path": game_path,
+                        "game_arguments": str(self.script_config.Game.Arguments),
+                        "plugin_path": _PLUGIN_PATH,
+                    },
+                )
+            await wait_process_window_ready(
+                ProcessInfo(name=_MAAEND_CLIENT_PROCESS),
+                int(self.script_config.Game.WaitTime),
+            )
+            return
         command = _game_launch_command(
             launcher_path=self._launcher_path_text(),
             game_path=game_path,
@@ -933,6 +983,7 @@ class AutoProxyTask(AutoProxyWorker):
         """
 
         async with _launcher_automation():
+            self._launcher_started_at = None
             launcher_path = self._launcher_path()
             if launcher_path is None:
                 raise RuntimeError(
@@ -950,10 +1001,7 @@ class AutoProxyTask(AutoProxyWorker):
                 and self._game_setting_pretask() is not None
             ):
                 await self._apply_launcher_game_settings()
-            if (
-                await has_process_window(_MAAEND_CLIENT_PROCESS)
-                and await self._game_window_in_session()
-            ):
+            if await self._game_window_in_session():
                 logger.info("检测到终末地客户端进程已在运行，跳过由 MAS 重复启动游戏")
                 await push_dispatch_log(
                     self.script_info, "检测到客户端已在运行，跳过启动"
@@ -962,21 +1010,17 @@ class AutoProxyTask(AutoProxyWorker):
             # 拉起前校验官方签名：与直接启动（game_launcher）同一套校验口径
             await asyncio.to_thread(verify_launcher_signature, launcher_path)
             point(self, "start_game")
-            if await self.game_process_manager.is_running():
-                # 阶段切换可能只关闭游戏；手动指定的常驻启动器仍由同一管理器持有。
-                await push_dispatch_log(self.script_info, "复用仍在运行的终末地启动器")
-            else:
-                await push_dispatch_log(
-                    self.script_info, f"正在拉起终末地启动器: {launcher_path.name}"
-                )
-                # 手选 Games.exe 也已解析到稳定入口，始终定位终末地页。
-                await self.game_process_manager.open_process(
-                    launcher_path,
-                    "--game=Endfield",
-                    "--reason=4",
-                    breakaway=True,
-                    owned=False,
-                )
+            await push_dispatch_log(
+                self.script_info, f"正在拉起终末地启动器: {launcher_path.name}"
+            )
+            # 手选 Games.exe 也已解析到稳定入口，始终定位终末地页。
+            client_path = client_executable_path(self.script_config)
+            self._launcher_started_at = time()
+            await self.game_process_manager.open_launcher(
+                launcher_path,
+                "--game=Endfield",
+                "--reason=4",
+            )
             # 启动器交互在后台线程内同步执行，on_log 契约是同步回调；push_dispatch_log
             # 是 async 函数，须经 run_coroutine_threadsafe 调度回事件循环
             launch_loop = asyncio.get_running_loop()
@@ -986,11 +1030,27 @@ class AutoProxyTask(AutoProxyWorker):
                     push_dispatch_log(self.script_info, line), launch_loop
                 )
 
-            launched = await async_start_game_via_launcher(
-                launcher_path,
-                on_log=_push_launch_log,
-                on_error_screenshot=self._record_error_screenshot,
-            )
+            if (desktop := current_desktop_target()) is not None:
+                code, screenshots = await request_desktop_action(
+                    desktop,
+                    "maaend_launch",
+                    {
+                        "launcher_path": str(launcher_path),
+                        "client_path": str(client_path) if client_path else None,
+                        "plugin_path": _PLUGIN_PATH,
+                    },
+                    on_log=_push_launch_log,
+                )
+                for screenshot in screenshots:
+                    self._record_error_screenshot(Path(screenshot))
+                launched = code == 0
+            else:
+                launched = await async_start_game_via_launcher(
+                    launcher_path,
+                    client_path=client_path,
+                    on_log=_push_launch_log,
+                    on_error_screenshot=self._record_error_screenshot,
+                )
             if not launched:
                 raise RuntimeError("终末地启动器未能拉起游戏，请人工确认启动器状态")
             wait_time = int(self.script_config.Game.WaitTime)
@@ -999,9 +1059,11 @@ class AutoProxyTask(AutoProxyWorker):
                 f"游戏窗口已出现，正在等待画面就绪（最多 {wait_time}s）...",
             )
             # 启动器只保证窗口出现，引擎还在初始化时截图仍是空图，等客户区画出来再继续
-            await wait_process_window_ready(
-                ProcessInfo(name=_MAAEND_CLIENT_PROCESS), wait_time
+            target = ProcessInfo(
+                name=_MAAEND_CLIENT_PROCESS,
+                exe=str(client_path) if client_path else None,
             )
+            await wait_process_window_ready(target, wait_time)
 
     async def _kill_launcher_process(self) -> None:
         """持有启动器锁时，按进程家族与安装根目录树结束启动器。"""
@@ -1033,14 +1095,20 @@ class AutoProxyTask(AutoProxyWorker):
             # 脚本内部抛的 TimeoutError 继续走原异常流程。
             if not deadline.expired():
                 raise
-            message = f"运行超过 {limit} 分钟，已终止"
-            logger.warning(message)
+            # 与旧基类一致：超时按账号异常收口并保留原因，不抛异常打乱收尾。
+            message = f"运行超过 {limit:g} 分钟，已终止"
+            user = self.cur_user_item
+            await user.set_state(status="异常")
+            if user.log_record:
+                record = user.log_record[max(user.log_record)]
+            else:
+                record = await user.add_log_record(
+                    datetime.now().astimezone(), LogRecord()
+                )
+            await record.set_state(status=message)
+            await record.append_content(message)
             await self.script_info.set_log(f"{message}\n正在中止相关程序")
-            record = getattr(self, "cur_user_log", None)
-            if record is not None:
-                await record.set_state(status=message)
-                await record.append_content(message)
-            raise RuntimeError(message) from None
+            logger.warning(f"{self.script_info.name} - {user.name}: {message}")
 
     async def check(self) -> str | None:
         """检查运行条件；返回原因表示本次不运行，跳过单独记结论。
@@ -1164,11 +1232,25 @@ class AutoProxyTask(AutoProxyWorker):
         logger.info(message)
 
     async def _reject_account(self, reason: str) -> str:
-        """记录拒绝运行的原因并返回给基类，账号状态由调用方先写成异常。"""
+        """记录拒绝运行的原因并返回给基类，账号状态由调用方先写成异常。
+
+        与旧实现一致：账号日志里留一条本轮结论，并向任务推一条 error 通知；
+        返回原因只是让基类停下本次账号，重复的通知由 ``on_crash`` 拦掉。
+        """
         self.check_result = reason
+        await self.cur_user_item.add_log_record(
+            datetime.now().astimezone(), LogRecord(status=reason)
+        )
         message = f"账号 {self.cur_user_item.name} 检查未通过: {reason}"
         await self.script_info.set_log(message)
         logger.warning(message)
+        await Publisher.send(
+            id=self.task_info.task_id,
+            type=protocol.TASK_NOTICE,
+            data=WSTaskNoticeData(
+                sourceScriptType="MaaEnd", level="error", message=message
+            ),
+        )
         return reason
 
     def _prepare_auto_collect_routes(self) -> None:
@@ -1804,12 +1886,32 @@ class AutoProxyTask(AutoProxyWorker):
 
                 try:
                     await self.script_info.set_log("正在由 MAS 自建流程切换账号...")
-                    await login(
-                        account_id,
-                        self.emulator_info,
-                        restart_game=self._restart_game_after_update,
-                        on_error_screenshot=self._record_error_screenshot,
-                    )
+                    if (desktop := current_desktop_target()) is not None:
+                        async with _launcher_automation():
+                            code, outcome = await request_desktop_action(
+                                desktop,
+                                "maaend_login",
+                                {
+                                    "account": account_id,
+                                    "plugin_path": _PLUGIN_PATH,
+                                },
+                                on_restart=self._restart_game_after_update,
+                            )
+                        for screenshot in outcome["screenshots"]:
+                            self._record_error_screenshot(Path(screenshot))
+                        if code != 0:
+                            raise RuntimeError(
+                                f"分身内终末地账号切换失败：{outcome['error']}"
+                            )
+                        if outcome["notReady"] is not None:
+                            raise LoginNotReadyError(outcome["notReady"])
+                    else:
+                        await login(
+                            account_id,
+                            self.emulator_info,
+                            restart_game=self._restart_game_after_update,
+                            on_error_screenshot=self._record_error_screenshot,
+                        )
                 except Exception as error:
                     keep_game_for_login_retry = (
                         isinstance(error, LoginNotReadyError) and i < run_times_limit
@@ -1870,6 +1972,7 @@ class AutoProxyTask(AutoProxyWorker):
                 self.maaend_instance_name,
                 "--quit-after-run",
                 stdout=asyncio.subprocess.PIPE,
+                retain_desktop_descendants=True,
             )
             # 只有进程真的起来了才算一次 MXU 启动；否则 debug/ 里还是上一轮的残留。
             self._mxu_launch_count += 1
@@ -2042,11 +2145,19 @@ class AutoProxyTask(AutoProxyWorker):
         if self.emulator is None:
             logger.info("中止终末地进程")
             point(self, "stop_game")
+            if self._launcher_started_at is not None:
+                await self._kill_launcher_process()
             try:
-                await self.game_process_manager.kill()
+                if self._launcher_started_at is None:
+                    await self.game_process_manager.kill()
+                elif client_path := client_executable_path(self.script_config):
+                    await self.game_process_manager.stop_launcher_client(
+                        client_path, self._launcher_started_at
+                    )
             except Exception as error:
                 logger.opt(exception=True).warning(f"终末地进程管理器清理失败: {error}")
-            await self._kill_launcher_process()
+            if self._launcher_started_at is None:
+                await self._kill_launcher_process()
         else:
             try:
                 logger.info("中止模拟器进程")
@@ -3239,6 +3350,22 @@ class AutoProxyTask(AutoProxyWorker):
             return None
 
         if self.emulator is None:
+            if (desktop := current_desktop_target()) is not None:
+                game_path = (
+                    client_executable_path(self.script_config)
+                    or self.script_config.Game.Path
+                )
+                if game_path is None:
+                    return None
+                _, path = await request_desktop_action(
+                    desktop,
+                    "maaend_failure_screenshot",
+                    {
+                        "game_path": str(game_path),
+                        "plugin_path": _PLUGIN_PATH,
+                    },
+                )
+                return Path(path) if path else None
             hwnd = await self._failure_window_handle()
             if hwnd is None:
                 return None
@@ -3620,21 +3747,24 @@ class AutoProxyTask(AutoProxyWorker):
             )
 
     async def on_crash(self, exc: BaseException):
-        """未捕获异常兜底：记账号结论并推任务通知，自身不再向外抛。"""
+        """未捕获异常兜底：记账号结论并推任务通知。
+
+        检查未通过的原因已经由 ``_reject_account`` 推过一次通知，这里不再重复；
+        与旧实现一样，通知发送失败不吞掉，交给上层记录。
+        """
         await self.cur_user_item.set_state(status="异常")
+        if getattr(self, "check_result", "Pass") != "Pass":
+            return
         logger.opt(exception=True).warning(f"自动代理任务出现异常: {exc}")
-        try:
-            await Publisher.send(
-                id=self.task_info.task_id,
-                type=protocol.TASK_NOTICE,
-                data=WSTaskNoticeData(
-                    sourceScriptType="MaaEnd",
-                    level="error",
-                    message=f"自动代理任务出现异常: {exc}",
-                ),
-            )
-        except Exception as report_error:
-            logger.opt(exception=True).warning(f"上报自动代理异常失败: {report_error}")
+        await Publisher.send(
+            id=self.task_info.task_id,
+            type=protocol.TASK_NOTICE,
+            data=WSTaskNoticeData(
+                sourceScriptType="MaaEnd",
+                level="error",
+                message=f"自动代理任务出现异常: {exc}",
+            ),
+        )
 
     def _collect_inventory_report(self, paths: list[Path]) -> list[str]:
         """采集独立材料通知的展示行，并将上游状态写入推送日志。"""

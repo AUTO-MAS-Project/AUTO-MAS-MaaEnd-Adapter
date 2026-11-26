@@ -27,6 +27,29 @@ def test_decl_covers_three_modes_and_configs():
     }
 
 
+def test_decl_declares_desktop_session_capability():
+    """分身能力按控制器协议声明，游戏类型也按控制器动态收窄。"""
+    decl = Plugin().decl
+    assert decl.desktop_session_check is not None
+    assert decl.game_kind is not None
+    assert decl.game_kinds == ("emulator", "client")
+
+
+def test_script_config_keeps_execution_session_field():
+    """内置实现里 Run.ExecutionSession 随 MaaEndConfig 一起存在，插件版要保留。"""
+    from auto_mas_maaend_adapter.config import MaaEndConfig
+
+    config = MaaEndConfig.model_validate({})
+    assert config.Run.ExecutionSession == "main"
+
+
+def test_decl_declares_maintenance_expander():
+    """手动「检查更新」走维护任务入口，声明里要指向迁移后的展开器。"""
+    from auto_mas_maaend_adapter.manual_update import EndfieldUpdateExpander
+
+    assert Plugin().decl.maintenance_expander is EndfieldUpdateExpander
+
+
 def test_api_routes_keep_host_paths():
     paths = {route.path for route in Plugin().api_router.routes}
     assert "/api/scripts/maaend/options" in paths

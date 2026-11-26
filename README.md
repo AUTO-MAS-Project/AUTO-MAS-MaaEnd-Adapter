@@ -13,8 +13,9 @@ MaaEnd 是《明日方舟：终末地》的 MaaFramework PI V2 项目，外置�
 - 计划：周计划、任务选项、难度、采集与理智配置。
 - 更新：MaaEnd 程序更新接管、全量/增量更新与启动器更新。
 - 备份恢复：MAS 账号配置与 MaaEnd 原生 `config/` 的归档、预览、恢复。
-- 运行：日志采集、失败截图、通知、奖励与库存统计。只跑主会话；桌面分身
-  （多开 Windows 会话）暂不提供，配置里也不再保留 `Run.ExecutionSession`。
+- 运行：日志采集、失败截图、通知、奖励与库存统计。
+- 桌面分身：Win32 控制器的托管可保存「单独启动时使用的 Windows 会话」
+  （`Run.ExecutionSession` 取 `main` / `desktop`），队列仍按整条派发。
 
 ## 环境
 

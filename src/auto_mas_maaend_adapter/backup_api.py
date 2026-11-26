@@ -209,9 +209,7 @@ async def ensure_config_backup(
         data = await backup_service(script.scriptId, script.userId).ensure(
             script.target
         )
-        return MaaEndBackupEnsureOut(
-            code=200, status="success", message="", **data
-        )
+        return MaaEndBackupEnsureOut(code=200, status="success", message="", **data)
     except _utils_io.ConfigCorruptedError as error:
         # 源配置损坏：message 用原文（含损坏位置）直达用户，前端编辑页会透传
         logger.opt(exception=True).warning(f"配置按需归档失败（源配置损坏）: {error}")
