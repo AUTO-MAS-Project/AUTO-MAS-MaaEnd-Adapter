@@ -108,7 +108,7 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         """绑定 L3 上下文并初始化安装访问、原生配置快照、更新准备与报告汇总状态。"""
         super().__init__(script, config)
         self.user_config: ConfigCollection[MaaEndUserConfig] = config.users
-        self.begin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         self.controller_protocol = ""
         self.maaend_config_dir: Path | None = None
         self.temp_path: Path | None = None
@@ -180,13 +180,8 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             script_install.installation_access(root_path)
         )
 
-        # prepare() 先结算上轮未完成的原生事务（可能重装或修复），所以这里只在下
-        # 一眼就要动手的损坏安装上放行，别把能自动恢复的现场堵死在检查阶段。
-        pending_install = self._has_install_record(root_path)
         if not (root_path / "MaaEnd.exe").exists():
-            if not pending_install:
-                return "MaaEnd.exe文件不存在, 请检查MaaEnd路径设置！"
-            logger.warning("MaaEnd.exe 缺失但留有安装记录，先交给安装恢复处理")
+            return "MaaEnd.exe文件不存在, 请检查MaaEnd路径设置！"
 
         controller_name = str(script_config.Game.ControllerType or "").strip()
         if not controller_name:
@@ -197,11 +192,7 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
                 root_path, controller_name
             )
         except (OSError, KeyError, ValueError) as error:
-            if not pending_install:
-                return f"MaaEnd 控制器配置读取失败: {error}"
-            logger.warning(
-                f"MaaEnd 控制器配置暂时读取失败，先交给安装恢复处理: {error}"
-            )
+            return f"MaaEnd 控制器配置读取失败: {error}"
 
         if self.controller_protocol == "Adb" and (
             game_target_id(script_config) == "-"
@@ -261,16 +252,6 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
 
         return None
 
-    @staticmethod
-    def _has_install_record(root_path: Path) -> bool:
-        """判断安装目录里是否留着可进入恢复入口的安装记录。"""
-        if (script_install.workspace(root_path) / "transaction.json").is_file():
-            return True
-        return any(
-            script_install.record_path(root_path, name).exists()
-            for name in ("installed.json", "program-identity.json")
-        )
-
     async def prepare(self) -> None:
         """恢复安装事务与程序更新，快照归档原生配置，再接管终末地客户端更新。"""
         script_config = self.script_config
@@ -280,6 +261,8 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         if root_path is None:
             raise ValueError("Path未配置，请检查路径设置")
 
+        # 与旧实现一致：开始时间在检查通过、进入准备阶段时取，不把等锁与检查算进去。
+        self.begin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 通知收图使用未取整的时间，避免带入同一秒内上一轮留下的截图。
         self.error_image_start_ns = time_ns()
 

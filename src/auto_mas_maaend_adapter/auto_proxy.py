@@ -1079,14 +1079,20 @@ class AutoProxyTask(AutoProxyWorker):
             # 脚本内部抛的 TimeoutError 继续走原异常流程。
             if not deadline.expired():
                 raise
-            message = f"运行超过 {limit} 分钟，已终止"
-            logger.warning(message)
+            # 与旧基类一致：超时按账号异常收口并保留原因，不抛异常打乱收尾。
+            message = f"运行超过 {limit:g} 分钟，已终止"
+            user = self.cur_user_item
+            await user.set_state(status="异常")
+            if user.log_record:
+                record = user.log_record[max(user.log_record)]
+            else:
+                record = await user.add_log_record(
+                    datetime.now().astimezone(), LogRecord()
+                )
+            await record.set_state(status=message)
+            await record.append_content(message)
             await self.script_info.set_log(f"{message}\n正在中止相关程序")
-            record = getattr(self, "cur_user_log", None)
-            if record is not None:
-                await record.set_state(status=message)
-                await record.append_content(message)
-            raise RuntimeError(message) from None
+            logger.warning(f"{self.script_info.name} - {user.name}: {message}")
 
     async def check(self) -> str | None:
         """检查运行条件；返回原因表示本次不运行，跳过单独记结论。
@@ -1210,11 +1216,25 @@ class AutoProxyTask(AutoProxyWorker):
         logger.info(message)
 
     async def _reject_account(self, reason: str) -> str:
-        """记录拒绝运行的原因并返回给基类，账号状态由调用方先写成异常。"""
+        """记录拒绝运行的原因并返回给基类，账号状态由调用方先写成异常。
+
+        与旧实现一致：账号日志里留一条本轮结论，并向任务推一条 error 通知；
+        返回原因只是让基类停下本次账号，重复的通知由 ``on_crash`` 拦掉。
+        """
         self.check_result = reason
+        await self.cur_user_item.add_log_record(
+            datetime.now().astimezone(), LogRecord(status=reason)
+        )
         message = f"账号 {self.cur_user_item.name} 检查未通过: {reason}"
         await self.script_info.set_log(message)
         logger.warning(message)
+        await Publisher.send(
+            id=self.task_info.task_id,
+            type=protocol.TASK_NOTICE,
+            data=WSTaskNoticeData(
+                sourceScriptType="MaaEnd", level="error", message=message
+            ),
+        )
         return reason
 
     def _prepare_auto_collect_routes(self) -> None:
@@ -3711,21 +3731,24 @@ class AutoProxyTask(AutoProxyWorker):
             )
 
     async def on_crash(self, exc: BaseException):
-        """未捕获异常兜底：记账号结论并推任务通知，自身不再向外抛。"""
+        """未捕获异常兜底：记账号结论并推任务通知。
+
+        检查未通过的原因已经由 ``_reject_account`` 推过一次通知，这里不再重复；
+        与旧实现一样，通知发送失败不吞掉，交给上层记录。
+        """
         await self.cur_user_item.set_state(status="异常")
+        if getattr(self, "check_result", "Pass") != "Pass":
+            return
         logger.opt(exception=True).warning(f"自动代理任务出现异常: {exc}")
-        try:
-            await Publisher.send(
-                id=self.task_info.task_id,
-                type=protocol.TASK_NOTICE,
-                data=WSTaskNoticeData(
-                    sourceScriptType="MaaEnd",
-                    level="error",
-                    message=f"自动代理任务出现异常: {exc}",
-                ),
-            )
-        except Exception as report_error:
-            logger.opt(exception=True).warning(f"上报自动代理异常失败: {report_error}")
+        await Publisher.send(
+            id=self.task_info.task_id,
+            type=protocol.TASK_NOTICE,
+            data=WSTaskNoticeData(
+                sourceScriptType="MaaEnd",
+                level="error",
+                message=f"自动代理任务出现异常: {exc}",
+            ),
+        )
 
     def _collect_inventory_report(self, paths: list[Path]) -> list[str]:
         """采集独立材料通知的展示行，并将上游状态写入推送日志。"""
