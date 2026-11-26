@@ -44,13 +44,31 @@ def test_user_legacy_mode_maps_to_base():
 def test_plan_name_projects_to_info():
     plan = MaaEndPlanConfig.model_validate({"Info": {"Name": "计划一"}})
     assert plan.info.name == "计划一"
-    assert plan.normalize_payload(
-        {"ALL": {"SanityTaskType": "OperatorProgression", "OperatorProgression": "OperatorEXP"}}
-    )["ALL"]["Key"]["SanityTaskType"] == "OperatorProgression"
+    assert (
+        plan.normalize_payload(
+            {
+                "ALL": {
+                    "SanityTaskType": "OperatorProgression",
+                    "OperatorProgression": "OperatorEXP",
+                }
+            }
+        )["ALL"]["Key"]["SanityTaskType"]
+        == "OperatorProgression"
+    )
 
-def test_script_payload_drops_legacy_execution_session():
+
+def test_script_payload_keeps_execution_session():
+    """分身会话偏好属于托管配置，迁移后要保留，不能顺手删掉。"""
     normalized = MaaEndConfig.normalize_payload(
         {"Run": {"ExecutionSession": "desktop", "HardTimeLimit": 30}}
     )
-    assert "ExecutionSession" not in normalized["Run"]
+    assert normalized["Run"]["ExecutionSession"] == "desktop"
     assert normalized["Run"]["HardTimeLimit"] == 30
+
+
+def test_script_payload_defaults_execution_session_to_main():
+    """缺字段或写了不认识的值都按主会话处理。"""
+    missing = MaaEndConfig.normalize_payload({"Run": {"HardTimeLimit": 30}})
+    assert missing["Run"]["ExecutionSession"] == "main"
+    unknown = MaaEndConfig.normalize_payload({"Run": {"ExecutionSession": "other"}})
+    assert unknown["Run"]["ExecutionSession"] == "main"

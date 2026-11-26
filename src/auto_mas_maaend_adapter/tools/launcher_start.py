@@ -166,8 +166,8 @@ _UPDATE_CLICK_RETRY_LIMIT = 3
 # ── 窗口 / 进程定位 ─────────────────────────────────────────────────────
 
 
-def _find_game_hwnd() -> int | None:
-    return _game_window.find_window(_GAME_PROCESS)
+def _find_game_hwnd(client_path: Path | None = None) -> int | None:
+    return _game_window.find_window(_GAME_PROCESS, exe_path=client_path)
 
 
 def _root_prefix(launcher_path: Path) -> str:
@@ -474,6 +474,7 @@ def _save_error_screenshot(
 def start_game_via_launcher(
     launcher_path: Path,
     *,
+    client_path: Path | None = None,
     on_log: Callable[[str], None] | None = None,
     on_error_screenshot: Callable[[Path], None] | None = None,
     stop_event: Event | None = None,
@@ -495,6 +496,7 @@ def start_game_via_launcher(
 
     Args:
         launcher_path: 自动识别或手动指定的启动器 exe 路径。
+        client_path: 所选终末地客户端的可执行文件路径。
         on_log: 流程进度回调（供 MAS 推送调度台日志），默认仅写日志。
         on_error_screenshot: 将本次保存的失败截图交给任务报告。
         stop_event: 异步任务取消时置位，交互线程在下一次操作前退出。
@@ -585,7 +587,7 @@ def start_game_via_launcher(
 
         while time.monotonic() < deadline:
             _pause(0, stop_event)
-            if _find_game_hwnd() is not None:
+            if _find_game_hwnd(client_path) is not None:
                 on_log("已检测到终末地游戏窗口")
                 return True
 
@@ -878,7 +880,7 @@ def start_game_via_launcher(
                     )
             _pause(2, stop_event)
 
-        if _find_game_hwnd() is not None:
+        if _find_game_hwnd(client_path) is not None:
             on_log("已检测到终末地游戏窗口")
             return True
         raise RuntimeError(
@@ -900,6 +902,7 @@ def start_game_via_launcher(
 async def async_start_game_via_launcher(
     launcher_path: Path,
     *,
+    client_path: Path | None = None,
     on_log: Callable[[str], None] | None = None,
     on_error_screenshot: Callable[[Path], None] | None = None,
 ) -> bool:
@@ -909,6 +912,7 @@ async def async_start_game_via_launcher(
         asyncio.to_thread(
             start_game_via_launcher,
             launcher_path,
+            client_path=client_path,
             on_log=on_log,
             on_error_screenshot=on_error_screenshot,
             stop_event=stop_event,

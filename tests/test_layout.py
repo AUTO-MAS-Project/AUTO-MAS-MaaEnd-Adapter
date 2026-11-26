@@ -27,5 +27,11 @@ def test_legacy_entries_are_moved():
     }
     for name in moved:
         assert (PACKAGE / name).is_file(), name
-    for legacy in ("AutoProxy.py", "ScriptConfig.py", "Update.py", "manager.py", "registration.py"):
+    for legacy in (
+        "AutoProxy.py",
+        "ScriptConfig.py",
+        "Update.py",
+        "manager.py",
+        "registration.py",
+    ):
         assert not (PACKAGE / legacy).exists(), legacy

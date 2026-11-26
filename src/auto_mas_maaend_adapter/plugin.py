@@ -20,7 +20,17 @@
 /api/scripts/maaend/*。
 """
 
-from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
+from pathlib import Path
+from typing import Any
+
+from auto_mas_core import (
+    Config,
+    DesktopSessionCheckReason,
+    ScriptAdapterPlugin,
+    ScriptEntry,
+    ScriptTypeDecl,
+    TaskMode,
+)
 
 # 分辨率与显示模式读的是终末地 PC 客户端（Unity）写在注册表里的项。
 from auto_mas_core.host.task_maafw_game_resolution import (
@@ -34,6 +44,7 @@ from .backup_api import router as backup_router
 from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
+from .resource_loader import load_maaend_controller_protocol
 
 # 端点仍按宿主脚本路由的绝对前缀挂载；api.py 里的路径是 /maaend/*，这里只加一次
 # /api/scripts，避免两边各写一遍前缀。
@@ -54,6 +65,35 @@ def config_service() -> MaaEndConfigService:
     return _config_service
 
 
+def desktop_session_check(
+    config: ScriptEntry, elevated: bool
+) -> "DesktopSessionCheckReason | None":
+    """按托管实际生效的控制器协议判断能否在桌面分身里运行。
+
+    内置实现只允许 Win32 控制器走分身，插件沿用同一口径：没填路径、没选控制器、
+    读不出协议或选了 Adb 都按不支持处理。``elevated`` 参与判断的专项才需要提权，
+    MaaEnd 不需要。
+    """
+    del elevated
+    path = getattr(config.Info, "Path", None)
+    controller = str(getattr(config.Game, "ControllerType", "") or "").strip()
+    if path is None or not controller:
+        return "unsupported_config"
+    try:
+        protocol = load_maaend_controller_protocol(Path(str(path)), controller)
+    except (OSError, KeyError, ValueError):
+        return "unsupported_config"
+    return None if protocol == "Win32" else "unsupported_config"
+
+
+def game_kind(script: ScriptEntry, patch: dict[str, Any]) -> str:
+    """按托管当前配置或保存补丁里的控制器协议限定可绑定的游戏类型。"""
+    controller = str(
+        (patch.get("Game") or {}).get("ControllerType", script.Game.ControllerType)
+    ).lower()
+    return "emulator" if controller == "adb" else "client"
+
+
 class Plugin(ScriptAdapterPlugin):
     """MaaEnd 专项插件入口。"""
 
@@ -71,6 +111,8 @@ class Plugin(ScriptAdapterPlugin):
         ),
         # 程序更新预取留在展开器：只有它知道安装目录与更新渠道。
         prefetch_check=MaaEndExpander.check_prefetch,
+        desktop_session_check=desktop_session_check,
+        game_kind=game_kind,
         game_kinds=("emulator", "client"),
         activity_game="endfield",
     )
