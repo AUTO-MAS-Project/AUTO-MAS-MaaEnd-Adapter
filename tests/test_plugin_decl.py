@@ -50,6 +50,15 @@ def test_decl_declares_maintenance_expander():
     assert Plugin().decl.maintenance_expander is EndfieldUpdateExpander
 
 
+def test_decl_declares_restore_pools():
+    """账号页仍调宿主通用 /api/scripts/backup/*：池为空就取不到备份。"""
+    from auto_mas_maaend_adapter.tools.restore_service import RESTORE_POOLS
+
+    pools = Plugin().decl.restore_pools
+    assert pools
+    assert list(pools) == RESTORE_POOLS
+
+
 def test_api_routes_keep_host_paths():
     paths = {route.path for route in Plugin().api_router.routes}
     assert "/api/scripts/maaend/options" in paths

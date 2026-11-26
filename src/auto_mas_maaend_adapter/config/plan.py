@@ -228,6 +228,14 @@ class MaaEndPlanConfig(WeeklyKeyPlan):
     @classmethod
     def normalize_payload(cls, data):
         normalized_data = deepcopy(data)
+        # 历史 JSON 的 Days 容器：与宿主一次性升级同一口径展开到日期分组，
+        # 冲突时以 Days 内容为准（宿主即整体覆盖）。运行期只认配置分组。
+        days = normalized_data.pop("Days", None)
+        if isinstance(days, dict):
+            for day, value in days.items():
+                group = cls.day_group_of(str(day))
+                if group is not None:
+                    normalized_data[group] = value
         for group in ["ALL", *calendar.day_name, *(f"Day{i}" for i in range(1, 32))]:
             group_data = normalized_data.get(group)
             if isinstance(group_data, dict):
