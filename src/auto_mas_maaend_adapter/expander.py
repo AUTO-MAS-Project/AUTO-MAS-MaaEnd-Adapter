@@ -607,9 +607,25 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         )
 
     async def _skip_maintenance(self, user, window) -> None:
-        """登记因维护跳过本轮执行的账号，并写入跳过原因。"""
+        """登记因维护跳过本轮执行的账号，并写入跳过原因。
+
+        与旧实现一致：账号状态与日志记录之外，调度台流水里留一行，并推一条
+        info 通知，免得用户只看到托管被跳过却不知道是维护。
+        """
         self._maintenance_skipped.add(user.info.user_id)
         await self.record_user_state(user, status="跳过", reason=window.reason)
+        line = f"{self.script_info.name} - {user.name}: {window.reason}"
+        await self.script_info.set_log(
+            f"{self.script_info.log}\n{line}" if self.script_info.log else line
+        )
+        logger.info(line)
+        await Publisher.send(
+            id=self.task_info.task_id,
+            type=protocol.TASK_NOTICE,
+            data=WSTaskNoticeData(
+                sourceScriptType="MaaEnd", level="info", message=line
+            ),
+        )
 
     @property
     def all_users_maintenance_skipped(self) -> bool:

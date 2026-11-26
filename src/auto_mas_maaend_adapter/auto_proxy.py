@@ -23,6 +23,7 @@ import shlex
 import sys
 import tempfile
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -499,7 +500,8 @@ class AutoProxyTask(AutoProxyWorker):
         self.push_log: list[tuple[str, str, float]] = []
         self.push_log_mode = "汇总"
         # 后台写入句柄：替代旧基类的 callbacks.submit 排队桥。
-        self._pending_writes: set[asyncio.Task] = set()
+        self._write_queue: deque[Any] = deque()
+        self._write_consumer: asyncio.Task | None = None
         # prepare() 是否走完；check 未通过或跳过时收尾据此跳过资源清理。
         self.prepared = False
         # check 判为跳过时的原因：跳过不走异常路径，主流程与收尾据此提前返回。
@@ -587,14 +589,28 @@ class AutoProxyTask(AutoProxyWorker):
         与其写入发生在同一事件循环，直接建任务即可，句柄在此统一等待，
         收尾前调用 _drain_writes()，避免最后一次写入丢失。
         """
-        task = asyncio.create_task(coroutine)
-        self._pending_writes.add(task)
-        task.add_done_callback(self._pending_writes.discard)
+        self._write_queue.append(coroutine)
+        if self._write_consumer is None or self._write_consumer.done():
+            self._write_consumer = asyncio.create_task(self._consume_writes())
+
+    async def _consume_writes(self) -> None:
+        """单消费者顺序落盘；与旧基类的回调桥一致，写入失败只记日志。"""
+        try:
+            while self._write_queue:
+                coroutine = self._write_queue.popleft()
+                try:
+                    await coroutine
+                except Exception as error:
+                    logger.opt(exception=error).warning("后台写入失败")
+        finally:
+            while self._write_queue:
+                self._write_queue.popleft().close()
 
     async def _drain_writes(self) -> None:
-        """等待已排队的后台写入结束；写入自身失败不改变业务结论。"""
-        while self._pending_writes:
-            await asyncio.gather(*tuple(self._pending_writes), return_exceptions=True)
+        """等待队列消费完；写入自身失败不改变业务结论。"""
+        while self._write_consumer is not None:
+            task = self._write_consumer
+            await asyncio.gather(task, return_exceptions=True)
 
     async def run_user_scripts_before(self) -> None:
         """执行账号级任务前脚本；每账号一次，先于全部重试。"""
