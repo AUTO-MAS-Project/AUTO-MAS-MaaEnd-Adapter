@@ -117,6 +117,25 @@ class Plugin(ScriptAdapterPlugin):
         activity_game="endfield",
     )
 
+    def validate_update(self, data: dict[str, Any]) -> None:
+        """保存托管配置前校验终末地启动器路径（宿主同步调用）。"""
+        MaaEndConfigService.validate_update(data)
+
+    async def import_config(
+        self,
+        script: ScriptEntry,
+        target_directory: Path,
+        *,
+        user_id: str | None = None,
+    ) -> None:
+        """把 MaaEnd 安装目录里的上游配置导入到 MAS 配置目录。"""
+        MaaEndConfigService.import_config(script, target_directory, user_id=user_id)
+
+    async def initialize(self, script: ScriptEntry) -> None:
+        """托管激活后迁移历史 LaunchMode 取值（Client → MaaEnd/MAS）。"""
+        service = getattr(self, "_config_service", None) or config_service()
+        await service.initialize(script)
+
     async def pre_enable(self) -> None:
         """绑定 MaaEnd 用到的关联配置集合，并保管本插件的能力服务。
 
