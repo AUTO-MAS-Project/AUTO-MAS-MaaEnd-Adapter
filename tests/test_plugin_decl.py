@@ -43,6 +43,13 @@ def test_script_config_keeps_execution_session_field():
     assert config.Run.ExecutionSession == "main"
 
 
+def test_decl_declares_maintenance_expander():
+    """手动「检查更新」走维护任务入口，声明里要指向迁移后的展开器。"""
+    from auto_mas_maaend_adapter.manual_update import EndfieldUpdateExpander
+
+    assert Plugin().decl.maintenance_expander is EndfieldUpdateExpander
+
+
 def test_api_routes_keep_host_paths():
     paths = {route.path for route in Plugin().api_router.routes}
     assert "/api/scripts/maaend/options" in paths

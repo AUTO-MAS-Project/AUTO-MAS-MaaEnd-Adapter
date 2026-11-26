@@ -44,6 +44,7 @@ from .backup_api import router as backup_router
 from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
+from .manual_update import EndfieldUpdateExpander
 from .resource_loader import load_maaend_controller_protocol
 
 # 端点仍按宿主脚本路由的绝对前缀挂载；api.py 里的路径是 /maaend/*，这里只加一次
@@ -111,6 +112,8 @@ class Plugin(ScriptAdapterPlugin):
         ),
         # 程序更新预取留在展开器：只有它知道安装目录与更新渠道。
         prefetch_check=MaaEndExpander.check_prefetch,
+        # 手动「检查更新」走维护任务入口：树里指定到账号，由本展开器跑一轮客户端更新。
+        maintenance_expander=EndfieldUpdateExpander,
         desktop_session_check=desktop_session_check,
         game_kind=game_kind,
         game_kinds=("emulator", "client"),
