@@ -46,12 +46,14 @@ from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
 from .manual_update import EndfieldUpdateExpander
 from .resource_loader import load_maaend_controller_protocol
+from .tools.restore_service import RESTORE_POOLS
 
 # 端点仍按宿主脚本路由的绝对前缀挂载；api.py 里的路径是 /maaend/*，这里只加一次
 # /api/scripts，避免两边各写一遍前缀。
 router = APIRouter()
 router.include_router(maaend_router, prefix="/api/scripts", tags=["脚本管理"])
-# 备份恢复走插件自有前缀：宿主通用备份端点依赖宿主装配的恢复池解析器。
+# 备份恢复：宿主通用 /api/scripts/backup/* 经 decl.restore_pools 解析池；插件自有
+# 前缀的同一套端点在迁移期继续保留，前端两种调用都能用。
 router.include_router(backup_router)
 
 
@@ -114,6 +116,8 @@ class Plugin(ScriptAdapterPlugin):
         prefetch_check=MaaEndExpander.check_prefetch,
         # 手动「检查更新」走维护任务入口：树里指定到账号，由本展开器跑一轮客户端更新。
         maintenance_expander=EndfieldUpdateExpander,
+        # 声明式恢复池：宿主通用 /api/scripts/backup/* 按此解析池，账号页沿用旧接口。
+        restore_pools=tuple(RESTORE_POOLS),
         desktop_session_check=desktop_session_check,
         game_kind=game_kind,
         game_kinds=("emulator", "client"),

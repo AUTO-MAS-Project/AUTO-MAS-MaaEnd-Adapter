@@ -57,6 +57,41 @@ def test_plan_name_projects_to_info():
     )
 
 
+def test_plan_payload_expands_legacy_days_container():
+    """旧计划表的 Days 容器展开到日期分组，与已有字段冲突时以 Days 为准。"""
+    normalized = MaaEndPlanConfig.normalize_payload(
+        {
+            "Days": {
+                "Monday": {"SanityTaskType": "Essence", "AutoEssenceMenu": "Random"},
+                "Friday": {"SanityTaskType": "Essence", "AutoEssenceMenu": "Location"},
+                "3": {
+                    "SanityTaskType": "OperatorProgression",
+                    "OperatorProgression": "Promotions",
+                },
+            },
+            "Monday": {"Key": {"SanityTaskType": "OperatorProgression"}},
+        }
+    )
+    assert "Days" not in normalized
+    assert normalized["Monday"]["Key"]["SanityTaskType"] == "Essence"
+    assert normalized["Friday"]["Key"]["SanityTaskType"] == "Essence"
+    assert normalized["Day3"]["Key"]["OperatorProgression"] == "Promotions"
+    plan = MaaEndPlanConfig.model_validate(normalized)
+    assert plan.Monday.Key.SanityTaskType == "Essence"
+    assert plan.Day3.Key.OperatorProgression == "Promotions"
+
+
+def test_plan_payload_ignores_unknown_days_names():
+    """Days 里认不出的日期名直接忽略，不凭空造分组。"""
+    normalized = MaaEndPlanConfig.normalize_payload(
+        {"Days": {"Mon": {"SanityTaskType": "Essence"}, "32": {}}}
+    )
+    assert "Days" not in normalized
+    assert "Mon" not in normalized
+    assert "Day32" not in normalized
+    assert "Monday" not in normalized
+
+
 def test_script_payload_keeps_execution_session():
     """分身会话偏好属于托管配置，迁移后要保留，不能顺手删掉。"""
     normalized = MaaEndConfig.normalize_payload(
