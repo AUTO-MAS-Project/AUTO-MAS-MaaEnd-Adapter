@@ -42,6 +42,12 @@ def test_script_config_keeps_execution_session_field():
     config = MaaEndConfig.model_validate({})
     assert config.Run.ExecutionSession == "main"
 
+    legacy = MaaEndConfig.model_validate({"Run": {"ExecutionSession": "desktop"}})
+    reloaded = MaaEndConfig.model_validate(
+        legacy.model_dump(context={"audience": "persist"})
+    )
+    assert reloaded.Run.ExecutionSession == "desktop"
+
 
 def test_decl_declares_maintenance_expander():
     """手动「检查更新」走维护任务入口，声明里要指向迁移后的展开器。"""
@@ -64,6 +70,21 @@ def test_api_routes_keep_host_paths():
     assert "/api/scripts/maaend/options" in paths
     assert "/api/scripts/maaend/launcher-path" in paths
     assert "/api/scripts/maaend/log-bundle" in paths
+    assert not any("/backup/" in path for path in paths)
+
+
+def test_maaend_options_keep_the_original_mcp_tool():
+    from app.core.mcp import included_operations
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(Plugin.api_router)
+    tools = set(included_operations(app))
+    tool_id = "get_maaend_options_api_scripts_maaend_options_post"
+    assert {name for name in tools if "maaend" in name} == {tool_id}
+    operation = app.openapi()["paths"]["/api/scripts/maaend/options"]["post"]
+    assert operation["operationId"] == tool_id
+    assert "controllerTypes" in operation["description"]
 
 
 def test_workers_use_plugin_bases():

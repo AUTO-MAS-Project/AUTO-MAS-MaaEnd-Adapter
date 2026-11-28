@@ -31,13 +31,7 @@ from auto_mas_core.adapters.script import game_update_result, point
 from auto_mas_core.devices.task import game_device_id, game_target_id
 from auto_mas_core.host import core_notify_report as _node_report
 from auto_mas_core.host.config import ConfigCollection, config_manager
-from auto_mas_core.host.core import (
-    Config,
-    GameMaintenance,
-    GameManager,
-    Notify,
-    Publisher,
-)
+from auto_mas_core.host.core import Config, GameMaintenance, Notify, Publisher
 from auto_mas_core.host.core_notify_task_content import (
     push_maintenance_notice,
     screenshot_entries,
@@ -93,6 +87,8 @@ _SUPPORTED_MODES = (
 class MaaEndExpander(UserExpander[MaaEndConfig]):
     """MaaEnd 控制器"""
 
+    # 全部账号因维护跳过时不占用游戏，也不进入安装恢复、更新或配置备份。
+    defer_game_session = True
     maintenance_message = "终末地正在维护"
 
     def maintenance_game(self, user_config: MaaEndUserConfig) -> str | None:
@@ -115,6 +111,7 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         self.had_original_script_config = False
         self.prepared = False
         self.has_proxy_run = False
+        self._keep_last_game = False
         self.error_image_start_ns: int | None = None
         self.error_screenshot_paths: list[Path] = []
         self._install_access = ExitStack()
@@ -122,6 +119,8 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         self._update_candidate: script_update.PreparedUpdate | str | None = None
         # 本轮被维护时段挡下的账号；全部账号都在维护期时报告改成维护提示。
         self._maintenance_skipped: set[str] = set()
+        self._maintenance_until: dict[str, datetime] = {}
+        self._maintenance_only = False
         # 配置/查看会话要留到 finish() 再决定是否保留 GUI 写回，这里记住最后跑的那个。
         self._active_config_task = None
         # 本轮跑过的自动代理执行器，按账号运行节点索引，收尾报告从它们取节点详情。
@@ -161,8 +160,60 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         if candidate is not None:
             script_update.discard_update(candidate)
 
+    def can_run_user(self, entry) -> bool:
+        """在账号锁内保留 MaaEnd 的到期限制，配置与查看会话不受限制。"""
+        return super().can_run_user(entry) and (
+            self.task_info.mode != TaskMode.AUTO_PROXY
+            or not isinstance(entry, MaaEndUserConfig)
+            or entry.Info.RemainedDay != 0
+        )
+
+    async def main_task(self) -> None:
+        """全部可用账号在维护期时，直接记跳过并保留安装和设备现场。"""
+        if (
+            self.task_info.mode == TaskMode.AUTO_PROXY
+            and await self._skip_all_in_maintenance()
+        ):
+            return
+        await super().main_task()
+
+    async def _skip_all_in_maintenance(self) -> bool:
+        users = []
+        windows = {}
+        for user in self.script_info.users.values():
+            config = self.resolve_user(user)
+            if not isinstance(config, MaaEndUserConfig):
+                return False
+            users.append((user, config))
+            game = self.maintenance_game(config)
+            if game is not None and game not in windows and self.can_run_user(config):
+                windows[game] = await self._maintenance_window(config)
+
+        runnable = []
+        for user, config in users:
+            if self.resolve_user(user) is not config:
+                return False
+            if self.can_run_user(config):
+                window = windows.get(self.maintenance_game(config))
+                if window is None:
+                    return False
+                runnable.append((user, window))
+        if not runnable:
+            return False
+
+        for user, window in runnable:
+            await self._skip_maintenance(user, window)
+        for user, _ in users:
+            if user.info.user_id not in self._maintenance_skipped:
+                await self.record_user_state(
+                    user, status="跳过", reason="用户已禁用或剩余天数不足"
+                )
+        self._maintenance_only = True
+        await self.notify_maintenance()
+        return True
+
     async def check(self) -> str | None:
-        """校验路径、控制器与游戏/模拟器配置；通过返回 None。"""
+        """恢复旧安装与原生配置，再校验程序和游戏／模拟器配置。"""
         mode = self.task_info.mode
         if mode not in _SUPPORTED_MODES:
             return "不支持的任务模式, 请检查任务配置！"
@@ -179,6 +230,10 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         self._install_access.enter_context(
             script_install.installation_access(root_path)
         )
+        self.maaend_config_dir = root_path / "config"
+        self.temp_path = Path.cwd() / f"data/{self.script_info.info.script_id}/Temp"
+        # 安装事务可能移走了程序或资源；必须恢复之后才能据这些文件决定能否运行。
+        await self._recover_install_transactions(root_path, script_config)
 
         if not (root_path / "MaaEnd.exe").exists():
             return "MaaEnd.exe文件不存在, 请检查MaaEnd路径设置！"
@@ -261,46 +316,15 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         return None
 
     async def prepare(self) -> None:
-        """恢复安装事务与程序更新，快照归档原生配置，再接管终末地客户端更新。"""
-        script_config = self.script_config
-        if not isinstance(script_config, MaaEndConfig):
-            raise TypeError("托管配置类型错误, 不是 MaaEnd 托管类型")
-        root_path = script_config.Info.Path
-        if root_path is None:
-            raise ValueError("Path未配置，请检查路径设置")
+        """选定游戏会话，快照归档原生配置，再接管终末地客户端更新。"""
+        await self.select_game_session()
 
         # 与旧实现一致：开始时间在检查通过、进入准备阶段时取，不把等锁与检查算进去。
         self.begin_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 通知收图使用未取整的时间，避免带入同一秒内上一轮留下的截图。
         self.error_image_start_ns = time_ns()
 
-        self.maaend_config_dir = root_path / "config"
-        self.temp_path = Path.cwd() / f"data/{self.script_info.info.script_id}/Temp"
-
-        await self._recover_install_transactions(root_path, script_config)
-
-        # 检查阶段可能因安装正在恢复而放行了缺失的程序或读不出的控制器配置，
-        # 恢复结束后必须重新确认一遍，不能带着半损坏的安装往下走。
-        if not (root_path / "MaaEnd.exe").exists():
-            raise RuntimeError(
-                "MaaEnd.exe文件不存在, 安装恢复后仍无法启动, 请检查MaaEnd路径设置！"
-            )
-        if not self.controller_protocol:
-            self.controller_protocol = load_maaend_controller_protocol(
-                root_path, str(script_config.Game.ControllerType)
-            )
-
-        # 先处置上次崩溃残留的快照, 再备份原始配置。无条件清空会把崩溃后唯一
-        # 一份原始配置副本删掉, 让注入污染的状态固化成「原始配置」。
-        self._recover_previous_run()
-
-        # 模拟器控制器按托管的目标实例借用设备；PC 控制器不占用模拟器。
-        if self.controller_protocol == "Adb":
-            self._emulator_override = await GameManager.get_emulator_instance(
-                str(game_target_id(script_config))
-            )
-        else:
-            self._emulator_override = None
+        assert self.temp_path is not None and self.maaend_config_dir is not None
 
         if _utils_io.commit_native_config_snapshot(
             self.temp_path,
@@ -398,6 +422,17 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
                 await self.script_info.set_log(f"MaaEnd 官方完整包自动修复：{outcome}")
                 recovered_automatically = True
 
+        if (
+            not takeover
+            and script_install.record_path(root_path, "installed.json").exists()
+        ):
+            # 非接管模式沿用 MXU 自行更新的安装。恢复事务仍须完成，
+            # 但旧 MAS 回执不应阻断后续配置或运行，也不重算哈希冒充可信。
+            await script_update.confirm_current_install(root_path, verify_receipt=False)
+
+        # 上次中断的快照要在程序更新或读取原生配置之前恢复，否则唯一的原始
+        # 配置可能被更新覆盖或被当作缺失。当前任务的快照稍后在 prepare() 建立。
+        self._recover_previous_run()
         if takeover:
             # 修复在原有资源预检之前，损坏的旧资源不能堵死恢复入口。
             if recovered_automatically:
@@ -405,10 +440,6 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
                 self._program_update_prepared = True
             else:
                 await self._prepare_script_update(root_path)
-        elif script_install.record_path(root_path, "installed.json").exists():
-            # 非接管模式沿用 MXU 自行更新的安装。恢复事务仍须完成，
-            # 但旧 MAS 回执不应阻断后续配置或运行，也不重算哈希冒充可信。
-            await script_update.confirm_current_install(root_path, verify_receipt=False)
 
     async def _prepare_script_update(self, root: Path) -> None:
         """按接管开关准备一次 MaaEnd 程序更新，失败时沿用当前安装继续任务。"""
@@ -588,7 +619,6 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
                 # 原生来源直接用安装目录的配置：先还原任务前快照，
                 # 别让上一个账号下发过的托管配置留在现场。
                 await self._restore_script_config_from_temp()
-            self.has_proxy_run = True
         else:
             # 配置/查看会话的写回要留到 finish() 判断，先记下当前会话。
             self._active_config_task = child
@@ -596,6 +626,9 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             await super().spawn(child)
         finally:
             if mode == TaskMode.AUTO_PROXY:
+                if child.game_start_attempted:
+                    self.has_proxy_run = True
+                    self._keep_last_game = child.keeps_game_on_finish
                 # 执行器自持本轮的节点详情素材与诊断截图，收尾报告从这里取。
                 self._proxy_tasks[child.user_info.uid] = child
                 self.error_screenshot_paths.extend(
@@ -607,12 +640,36 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             # 安装状态未确认时，同一目录上的后续账号也不能继续执行。
             raise RuntimeError("MaaEnd 安装状态未确认，后续账号不再执行")
 
+    def is_last_participating_user(self, current) -> bool:
+        """还设备前查看后续账号的准入状态，维护结果复用本轮已查的信息。"""
+        now = datetime.now().astimezone()
+        users = self.script_info.user_list
+        for user in users[users.index(current) + 1 :]:
+            config = self.resolve_user(user)
+            if not isinstance(config, MaaEndUserConfig) or not self.can_run_user(
+                config
+            ):
+                continue
+            maintained_until = self._maintenance_until.get(
+                self.maintenance_game(config) or ""
+            )
+            if maintained_until is None or maintained_until <= now:
+                return False
+        return True
+
     async def _maintenance_window(self, user_config):
-        """按账号服务器查询宿主维护信息，返回当前账号适用的维护时段。"""
-        return await get_user_maintenance(
-            self.maintenance_game(user_config),
+        """按账号服务器查询宿主维护信息，并记下本轮最近一次查询结果。"""
+        game = self.maintenance_game(user_config)
+        window = await get_user_maintenance(
+            game,
             lookup=partial(GameMaintenance.get_active, proxy=Config.proxy),
         )
+        if game is not None:
+            if window is None:
+                self._maintenance_until.pop(game, None)
+            else:
+                self._maintenance_until[game] = window.end
+        return window
 
     async def _skip_maintenance(self, user, window) -> None:
         """登记因维护跳过本轮执行的账号，并写入跳过原因。
@@ -655,6 +712,9 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
 
     async def final_task(self) -> None:
         """执行 L3 公共收尾；全部账号因维护跳过且无错误或取消时把托管结果记为跳过。"""
+        if self._maintenance_only and not self.cancelled and self.error is None:
+            await self.script_info.set_state(status="跳过")
+            return
         await super().final_task()
         if (
             self.all_users_maintenance_skipped
@@ -675,8 +735,8 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             self._cleanup_script_config_temp()
 
             if self.task_info.mode == TaskMode.AUTO_PROXY:
-                # 准备期间才开始维护时，未实际代理任何账号，不关闭原有模拟器。
-                if self.has_proxy_run:
+                # 只关闭本轮打开过的模拟器，并保留最后一个完成账号的游戏设置。
+                if self.has_proxy_run and not self._keep_last_game:
                     await close_emulator(self, index=game_device_id(self.script_config))
                 await config_manager.flush()
                 await self._push_proxy_report()
@@ -754,9 +814,10 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
         """标记托管异常，尽力还原原生配置并发布错误提示。"""
         await self.script_info.set_state(status="异常")
         logger.opt(exception=True).warning(f"MaaEnd任务出现异常: {exc}")
-        with suppress(Exception):
-            await self._restore_script_config_from_temp()
-        self._cleanup_script_config_temp()
+        if self.prepared:
+            with suppress(Exception):
+                await self._restore_script_config_from_temp()
+            self._cleanup_script_config_temp()
         if self.task_info.mode == TaskMode.AUTO_PROXY and self.user_config:
             with suppress(Exception):
                 await config_manager.flush()

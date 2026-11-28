@@ -22,12 +22,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path as NativePath
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from auto_mas_core import DesktopSessionRunFields, ScriptEntry
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigGroup,
+    ExportContext,
+    NodeState,
     Virtual,
     collection,
     encrypted,
@@ -41,7 +43,12 @@ from auto_mas_core.host.config_types import (
     path_policy,
 )
 from auto_mas_core.host.models_config_shared import none_as
-from pydantic import Field
+from pydantic import (
+    Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from .user import MaaEndUserConfig
 
@@ -231,6 +238,24 @@ class MaaEndConfig(ScriptEntry):
         await super()._activate_from_payload(
             type(self).normalize_payload(payload), regenerate_uuids=regenerate_uuids
         )
+
+    @model_serializer(mode="wrap")
+    def _serialize(
+        self,
+        handler: SerializerFunctionWrapHandler,
+        info: SerializationInfo,
+    ) -> dict[str, Any]:
+        """稳定配置沿用内置版的账号集合键，便于旧版直接读取。"""
+        document = super()._serialize(handler, info)
+        if (
+            info.mode == "json"
+            and ExportContext.from_dump(info.context).audience in ("persist", "export")
+            # JSON 升级用冷态模型导出字段，再按声明的键补入账号集合。
+            and self.activation_state == NodeState.ACTIVE
+            and "users" in document
+        ):
+            document["UserData"] = document.pop("users")
+        return document
 
     users: ConfigCollection[MaaEndUserConfig] = collection(MaaEndUserConfig)
 

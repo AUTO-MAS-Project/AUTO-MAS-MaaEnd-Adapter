@@ -39,7 +39,7 @@ from auto_mas_core.host.utils import process as _host_process
 if TYPE_CHECKING:
     from typing import Any as DesktopProcess
 
-iter_processes = _host_process.operations.iter_processes
+iter_scoped_process_info = _host_process.operations.iter_scoped_process_info
 terminate_process = _host_process.operations.terminate_process
 
 logger = get_logger("MaaEnd 更新接管")
@@ -171,9 +171,8 @@ def _find_executable_processes(executable: Path) -> list[psutil.Process]:
     expected = os.path.normcase(os.path.abspath(executable))
     return [
         process
-        for process in iter_processes(["exe"])
-        if process.info["exe"]
-        and os.path.normcase(os.path.abspath(process.info["exe"])) == expected
+        for process, info in iter_scoped_process_info(["exe"])
+        if info["exe"] and os.path.normcase(os.path.abspath(info["exe"])) == expected
     ]
 
 

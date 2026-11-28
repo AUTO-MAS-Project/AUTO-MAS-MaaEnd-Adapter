@@ -210,6 +210,15 @@ async def resolve_maaend_log_bundle(
     "/maaend/options",
     tags=["Get"],
     summary="获取 MaaEnd 动态选项",
+    description=(
+        "先创建 MaaEnd 托管并设置 Info.Path 为已安装的 MaaEnd 目录，"
+        "再用该托管的 scriptId 查询动态选项。"
+        "根据 controllerTypes 判断控制器协议：Adb 需配置模拟器与实例，"
+        "Win32 需配置游戏路径。控制器、基质与采集选项使用返回的真实值；"
+        "检查返回的 code，查询失败时先处理错误，不要猜测选项。"
+    ),
+    operation_id="get_maaend_options_api_scripts_maaend_options_post",
+    openapi_extra={"x-auto-mas-mcp": True},
     response_model=MaaEndOptionsOut,
     status_code=200,
 )

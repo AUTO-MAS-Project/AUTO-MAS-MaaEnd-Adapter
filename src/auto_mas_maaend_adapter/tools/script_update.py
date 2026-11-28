@@ -28,6 +28,7 @@ from auto_mas_core.host.services import script_install
 from auto_mas_core.host.services_common_update import transport
 from auto_mas_core.host.utils import fluxdown_cli as _fluxdown_cli
 from auto_mas_core.host.utils import io as _utils_io
+from auto_mas_core.host.utils import process as _host_process
 from packaging.version import Version
 
 from ..config import MaaEndConfig
@@ -48,10 +49,10 @@ PROTECTED = frozenset({"config", "debug", "logs", "user", ".git"})
 
 def assert_idle(root: Path) -> None:
     """覆盖 MXU、agent 和独立更新器；无法读取进程路径时不猜成空闲。"""
-    for process in psutil.process_iter(["exe", "name"]):
+    for _, info in _host_process.operations.iter_process_info(["exe", "name"]):
         try:
-            executable = process.info["exe"]
-            if not executable and str(process.info.get("name", "")).casefold() in {
+            executable = info["exe"]
+            if not executable and str(info.get("name", "")).casefold() in {
                 "maaend.exe",
                 "go-service.exe",
                 "cpp-algo.exe",
