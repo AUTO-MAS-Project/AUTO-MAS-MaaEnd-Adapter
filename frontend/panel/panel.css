@@ -1,0 +1,81 @@
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+p,
+h3,
+pre {
+  margin: 0;
+}
+
+h3 {
+  font-size: inherit;
+}
+
+.stack h2 {
+  margin-block-end: 0;
+}
+
+button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--mas-border);
+  border-radius: var(--mas-radius);
+  background: var(--mas-bg-elevated);
+  color: inherit;
+  font: inherit;
+}
+
+button:enabled,
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+pre {
+  max-height: 20rem;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--mas-border);
+  border-radius: var(--mas-radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plan-view {
+  width: min(100%, 13rem);
+}
+
+.plan-scroll {
+  overflow-x: auto;
+}
+
+.plan-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.plan-table :is(th, td) {
+  min-width: 9rem;
+  padding: 8px;
+  border: 1px solid var(--mas-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.plan-table th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--mas-bg-base);
+}

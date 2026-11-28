@@ -29,6 +29,10 @@ from auto_mas_core import UserEntry
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigGroup,
+    DeclarativeBlock,
+    HostBlock,
+    PluginBlock,
+    UiHintsMap,
     Virtual,
     collection,
     encrypted,
@@ -60,6 +64,15 @@ from .plan import MaaEndPlanConfig
 
 class MaaEndUserConfig(UserEntry):
     related_config: ClassVar = {}
+    ui_native_session = "config"
+    ui_blocks = (
+        HostBlock("config_restore"),
+        HostBlock("native_session"),
+        DeclarativeBlock(("Info",)),
+        PluginBlock("user", fallback_groups=("Task",)),
+        DeclarativeBlock(("Notify",)),
+        HostBlock("webhooks"),
+    )
 
     class DataFields(AccountRunFields, AccountRunStatusFields):
         PeriodTaskRecords: JsonDictString = Field(
@@ -315,13 +328,34 @@ class MaaEndUserConfig(UserEntry):
     Task: TaskFields = Field(default_factory=TaskFields)
     Notify_CustomWebhooks: ConfigCollection[Webhook] = collection(Webhook)
     _maaend_crisis_drills_labels: dict[str, str] = PrivateAttr(default_factory=dict)
+    _maaend_server_options: list[dict[str, str]] = PrivateAttr(default_factory=list)
 
-    def cache_maaend_resource(self, resource: dict[str, Any]) -> None:
+    def cache_maaend_resource(self, resource: dict[str, Any], controller: str) -> None:
         """缓存 MaaEnd 动态资源的展示文本。"""
         self._maaend_crisis_drills_labels = {
             str(item["value"]): str(item["label"])
             for item in resource.get("crisisDrills", [])
         }
+        self._maaend_server_options = (
+            resource.get("servers", [])
+            if resource.get("controllerTypes", {}).get(controller) == "Win32"
+            else [{"value": "官服", "label": "官服"}]
+        )
+
+    @virtual_field("ui.hints")
+    def _get_ui_hints(self) -> UiHintsMap:
+        hints = super()._get_ui_hints()
+        if self._maaend_server_options:
+            options = list(self._maaend_server_options)
+            # 配置可先于本体升级或切换；未知旧值仍应原样展示和保存。
+            if self.Info.Resource not in {item["value"] for item in options}:
+                options.insert(
+                    0, {"value": self.Info.Resource, "label": self.Info.Resource}
+                )
+            for hint in hints.get("Info", ()):
+                if hint["field"] == "Resource":
+                    hint.update(component="select", options=options)
+        return hints
 
     def get_effective_sanity_task_key(self) -> tuple[dict[str, Any], str]:
         """获取当前生效的完整 MaaEnd key。"""
