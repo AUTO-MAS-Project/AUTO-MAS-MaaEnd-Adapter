@@ -26,10 +26,9 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from pathlib import Path
 
-from auto_mas_core import UserExpander
+from auto_mas_core import ScriptConfigWorker, TaskUserItem, UserEntry, UserExpander
 from auto_mas_core.adapters.script import game_update_result, point
 from auto_mas_core.host.core import Publisher
 from auto_mas_core.host.core_ws import protocol
@@ -46,91 +45,104 @@ logger = get_logger("终末地客户端更新")
 
 
 class EndfieldUpdateExpander(UserExpander[MaaEndConfig]):
-    """手动触发的一次客户端更新，不持有需要跨轮保留的资源。
+    """沿用维护入口派发托管级客户端更新，由宿主建立并保护默认更新节点。"""
 
-    宿主的维护任务入口按 ``decl.maintenance_expander`` 构造本类，要求树里指定到
-    具体账号；结论写进托管节点的调度台日志，失败只推原因本身。
-    """
+    def build_worker(
+        self, user: TaskUserItem, config: UserEntry | None
+    ) -> ScriptConfigWorker:
+        return EndfieldUpdateWorker(expander=self, user=user, config=config)
+
+
+class EndfieldUpdateWorker(ScriptConfigWorker):
+    """在默认节点执行一次更新，保留调度台结论和手动停止结果。"""
+
+    def __init__(
+        self,
+        expander: EndfieldUpdateExpander,
+        user: TaskUserItem,
+        config: UserEntry | None,
+    ) -> None:
+        super().__init__(expander=expander, user=user, config=config)
+        self.script_config = expander.script_config
+        self.game_exe: Path | None = None
 
     async def check(self) -> str | None:
-        """手动更新只认 PC 客户端（Win32 控制器），并要能定位游戏可执行文件。"""
+        """确认已配置 MaaEnd 安装目录、PC 控制器及绑定的游戏客户端。"""
         config = self.script_config
         root_path = config.Info.Path
+        if root_path is None or not (root_path / "MaaEnd.exe").exists():
+            return (
+                "确认控制器类型需要读取 MaaEnd 本体，请先在脚本里配好 MaaEnd 路径"
+                "（未找到 MaaEnd.exe），再来检查终末地客户端更新！"
+            )
         controller = str(config.Game.ControllerType or "").strip()
-        if root_path is None or not controller:
+        if not controller:
             return "未选择 MaaEnd 控制器，请在托管编辑页选择控制器！"
         try:
-            protocol_name = load_maaend_controller_protocol(
-                Path(str(root_path)), controller
+            protocol_name = await asyncio.to_thread(
+                load_maaend_controller_protocol, root_path, controller
             )
         except (OSError, KeyError, ValueError) as error:
             return f"MaaEnd 控制器配置读取失败: {error}"
         if protocol_name != "Win32":
-            return "手动检查更新只支持 PC 客户端（Win32 控制器），请调整控制器设置"
-        exe = Path(str(client_executable_path(config) or "").strip())
-        if not exe.is_file():
+            return "终末地客户端更新仅支持 PC 控制器, 请检查托管配置中的控制器设置！"
+        exe = client_executable_path(config)
+        if exe is None or not exe.is_file():
             return "未完成游戏配置, 请检查托管配置中的游戏设置！"
+        self.game_exe = exe
         return None
 
-    async def main_task(self) -> None:
-        """单个账号跑一轮更新；不看 Game.IfAutoUpdate，用户点下按钮即为授权。"""
-        await self.script_info.set_state(status="运行")
-        self._entered = True
-        reason = await self.check()
-        if reason:
-            raise ValueError(reason)
-        for user in self.script_info.users.values():
-            if self.task_info.info.status == "cancelled":
-                raise asyncio.CancelledError
-            self.script_info.current.index = user.uid
-            await self.script_info.commit()
-            await self._run_update(user)
-
-    async def _run_update(self, user) -> None:
-        config = self.script_config
-        game_exe = Path(str(client_executable_path(config) or "").strip())
-        await user.set_state(status="运行")
+    async def main_logic(self) -> None:
+        """用户点击按钮即为授权，Game.IfAutoUpdate 只控制自动更新。"""
+        assert self.game_exe is not None
         point(self, "game_update")
         try:
             result = await ensure_game_updated(
-                game_exe,
-                time_limit_minutes=int(config.Game.UpdateTimeLimit),
+                self.game_exe,
+                time_limit_minutes=int(self.script_config.Game.UpdateTimeLimit),
                 progress=lambda line: push_dispatch_log(self.script_info, line),
                 entry="手动",
             )
         except asyncio.CancelledError:
-            # 取消不走 on_crash，也不落下面那三个状态：不收口这个账号就永远停在「运行」。
             point(self, "game_update", state="cancelled")
-            await user.set_state(status="异常")
             raise
         except Exception:
             point(self, "game_update", state="failed")
             raise
         game_update_result(self, result)
-        # 结论先落进日志再抛：toast 三秒就没了，弹窗里这一行才是留下的那份。
-        await push_dispatch_log(self.script_info, result.message)
-        if result.status == "Skipped":
-            # Skipped 是「本轮没做这件事」，不是失败。
-            await user.set_state(status="跳过")
-            return
         if result.status == "NeedManualUpdate":
+            # 失败和其他异常都走 on_crash，原因只向调度台追加一次。
             raise RuntimeError(result.message)
-        await user.set_state(status="完成")
+        await push_dispatch_log(self.script_info, result.message)
+        await self.user_info.set_state(
+            status="跳过" if result.status == "Skipped" else "完成"
+        )
 
-    async def finish(self) -> None:
-        """一次性更新任务不持有需要释放的资源；脚本配置锁归调度器。"""
+    async def final_task(self) -> None:
+        if self.cancelled:
+            # 沿用旧手动更新的节点终态，任务根仍由调度器标为已取消。
+            await self.user_info.set_state(status="异常")
+            return
+        await super().final_task()
 
     async def on_crash(self, exc: BaseException) -> None:
-        logger.opt(exception=True).warning(f"终末地客户端手动更新失败: {exc}")
-        with suppress(Exception):
+        await super().on_crash(exc)
+        try:
+            # 结论留在调度台；弹窗提示消失后仍能看到之前的进度和失败原因。
+            await push_dispatch_log(self.script_info, str(exc))
+        except Exception:
+            logger.opt(exception=True).warning("无法记录终末地手动更新的失败原因")
+        try:
             await Publisher.send(
                 id=self.task_info.task_id,
                 type=protocol.TASK_NOTICE,
                 # 只推原因本身；「终末地更新失败: 」这层前缀由前端词表加。
                 data=WSTaskNoticeData(
-                    sourceScriptType="MaaEnd", level="error", message=f"{exc}"
+                    sourceScriptType="MaaEnd", level="error", message=str(exc)
                 ),
             )
+        except Exception:
+            logger.opt(exception=True).warning("无法发送终末地手动更新失败提示")
 
 
 __all__ = ["EndfieldUpdateExpander"]

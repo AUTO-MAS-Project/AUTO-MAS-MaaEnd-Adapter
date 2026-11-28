@@ -1,5 +1,12 @@
 """配置模型迁移：旧字段形状与插件基类投影。"""
 
+from uuid import UUID
+
+import pytest
+from app.config import ConfigCollection, config_manager
+from app.models.config import MaaEndConfig as BuiltinMaaEndConfig
+from app.utils import io
+
 from auto_mas_maaend_adapter.config import (
     MaaEndConfig,
     MaaEndPlanConfig,
@@ -18,6 +25,76 @@ def test_script_payload_moves_user_data_to_users():
     assert set(normalized["users"]) == {"u1"}
     assert "UserData" not in MaaEndConfig.model_fields
     assert set(normalized["SubConfigsInfo"]["users"]) == {"u2"}
+
+
+@pytest.mark.asyncio
+async def test_saved_accounts_can_still_be_read_by_the_builtin_adapter(tmp_path):
+    """同一份磁盘配置可供插件版和旧内置版读取，接口仍用 users。"""
+    script_id = UUID("1a79b6d8-11c1-4c8b-b729-13247f019cc4")
+    user_id = UUID("6b45f422-3276-4853-989f-22b7cc2d9e2a")
+    path = tmp_path / "scripts.yaml"
+    io.write_file(
+        path,
+        {
+            "order": [{"uid": str(script_id), "type": "MaaEndConfig"}],
+            "data": {
+                str(script_id): {
+                    "UserData": {
+                        "order": [{"uid": str(user_id), "type": "MaaEndUserConfig"}],
+                        "data": {str(user_id): {"Info": {"Name": "旧账号"}}},
+                    },
+                },
+            },
+        },
+    )
+    scripts = ConfigCollection.build([MaaEndConfig], file=path)
+    await scripts.activate()
+    script = scripts[script_id]
+    assert script.users[user_id].Info.Name == "旧账号"
+    script.users[user_id].Info.Name = "在新版改名"
+    await script.users[user_id].commit()
+    await config_manager.flush()
+
+    api = script.model_dump()
+    assert api["users"]["data"][str(user_id)]["Info"]["Name"] == "在新版改名"
+    assert "UserData" not in api
+    old_scripts = ConfigCollection.build(
+        [BuiltinMaaEndConfig], payload=io.read_dict_file(path)
+    )
+    await old_scripts.activate()
+    assert list(old_scripts[script_id].UserData.keys()) == [user_id]
+    assert old_scripts[script_id].UserData[user_id].Info.Name == "在新版改名"
+
+
+@pytest.mark.asyncio
+async def test_maaend_plan_http_supports_both_create_names_and_legacy_consumer(
+    isolated_host, monkeypatch
+):
+    """部署插件后，旧客户端仍可创建 MaaEnd 计划和列出原计划。"""
+    from app.api import info, plan
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    plan_id = UUID("5924194a-fcc0-49b6-8a2b-f1d1875def93")
+    plans = ConfigCollection.build([MaaEndPlanConfig])
+    await plans.activate()
+    plans.add(MaaEndPlanConfig, uid=plan_id, payload={"Info": {"Name": "原计划"}})
+    await plans.commit()
+    monkeypatch.setattr(isolated_host, "PlanConfig", plans)
+    app = FastAPI()
+    app.include_router(plan.router)
+    app.include_router(info.router)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for create_type in ("MaaEndPlan", "MaaEndPlanConfig"):
+            created = await client.post("/api/plan/add", json={"type": create_type})
+            assert created.json()["status"] == "success", created.json()
+            assert isinstance(plans[created.json()["planId"]], MaaEndPlanConfig)
+        selected = await client.post(
+            "/api/info/combox/plan", json={"consumer": "maaend"}
+        )
+        assert {"label": "原计划", "value": str(plan_id)} in selected.json()["data"]
 
 
 def test_script_payload_migrates_fullscreen_restore():

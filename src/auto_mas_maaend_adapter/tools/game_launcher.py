@@ -18,7 +18,7 @@ from pathlib import Path
 import psutil
 from auto_mas_core.host.utils import process as _host_process
 
-iter_processes = _host_process.operations.iter_processes
+iter_scoped_process_info = _host_process.operations.iter_scoped_process_info
 
 
 logger = logging.getLogger("终末地启动")
@@ -182,19 +182,16 @@ def verify_launcher_signature(path: Path) -> None:
 
 
 def _game_running(game_path: Path) -> bool:
-    for process in iter_processes(["exe"]):
-        try:
-            if process.info["exe"] and Path(process.info["exe"]) == game_path:
-                return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+    for _, info in iter_scoped_process_info(["exe"]):
+        if info["exe"] and Path(info["exe"]) == game_path:
+            return True
     return False
 
 
 def _find_parent(kernel, launcher_path: Path):
     """核验同一安装目录下的 Games.exe，返回保持打开的父进程句柄。"""
-    for process in iter_processes(["name"]):
-        if (process.info["name"] or "").lower() != "games.exe":
+    for process, info in iter_scoped_process_info(["name"]):
+        if (info["name"] or "").lower() != "games.exe":
             continue
         handle = None
         try:

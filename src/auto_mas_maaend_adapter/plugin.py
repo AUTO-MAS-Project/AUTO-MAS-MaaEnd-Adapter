@@ -31,6 +31,7 @@ from auto_mas_core import (
     ScriptTypeDecl,
     TaskMode,
 )
+from auto_mas_core.adapters.script import DesktopSessionProbe
 
 # 分辨率与显示模式读的是终末地 PC 客户端（Unity）写在注册表里的项。
 from auto_mas_core.host.task_maafw_game_resolution import (
@@ -40,7 +41,6 @@ from auto_mas_core.host.task_maafw_game_resolution import (
 from fastapi import APIRouter
 
 from .api import router as maaend_router
-from .backup_api import router as backup_router
 from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
@@ -52,9 +52,6 @@ from .tools.restore_service import RESTORE_POOLS
 # /api/scripts，避免两边各写一遍前缀。
 router = APIRouter()
 router.include_router(maaend_router, prefix="/api/scripts", tags=["脚本管理"])
-# 备份恢复：宿主通用 /api/scripts/backup/* 经 decl.restore_pools 解析池；插件自有
-# 前缀的同一套端点在迁移期继续保留，前端两种调用都能用。
-router.include_router(backup_router)
 
 
 # 启用期持有的能力服务：端点经 config_service() 取；未启用时明确报错。
@@ -70,23 +67,23 @@ def config_service() -> MaaEndConfigService:
 
 def desktop_session_check(
     config: ScriptEntry, elevated: bool
-) -> "DesktopSessionCheckReason | None":
-    """按托管实际生效的控制器协议判断能否在桌面分身里运行。
-
-    内置实现只允许 Win32 控制器走分身，插件沿用同一口径：没填路径、没选控制器、
-    读不出协议或选了 Adb 都按不支持处理。``elevated`` 参与判断的专项才需要提权，
-    MaaEnd 不需要。
-    """
-    del elevated
-    path = getattr(config.Info, "Path", None)
-    controller = str(getattr(config.Game, "ControllerType", "") or "").strip()
+) -> DesktopSessionCheckReason | DesktopSessionProbe:
+    """读取托管配置，再按 MaaEnd 实际声明的 Win32 协议检查分身能力。"""
+    if not isinstance(config, MaaEndConfig):
+        return "unsupported_config"
+    path = config.Info.Path
+    controller = str(config.Game.ControllerType or "").strip()
     if path is None or not controller:
         return "unsupported_config"
-    try:
-        protocol = load_maaend_controller_protocol(Path(str(path)), controller)
-    except (OSError, KeyError, ValueError):
-        return "unsupported_config"
-    return None if protocol == "Win32" else "unsupported_config"
+
+    def read_controller() -> DesktopSessionCheckReason | None:
+        try:
+            protocol = load_maaend_controller_protocol(path, controller)
+        except (OSError, KeyError, ValueError):
+            return "unsupported_config"
+        return None if protocol == "Win32" else "unsupported_config"
+
+    return read_controller
 
 
 def game_kind(script: ScriptEntry, patch: dict[str, Any]) -> str:
@@ -114,9 +111,10 @@ class Plugin(ScriptAdapterPlugin):
         ),
         # 程序更新预取留在展开器：只有它知道安装目录与更新渠道。
         prefetch_check=MaaEndExpander.check_prefetch,
-        # 手动「检查更新」走维护任务入口：树里指定到账号，由本展开器跑一轮客户端更新。
+        # 手动「检查更新」沿用托管入口；更新节点不对应实际账号。
         maintenance_expander=EndfieldUpdateExpander,
-        # 声明式恢复池：宿主通用 /api/scripts/backup/* 按此解析池，账号页沿用旧接口。
+        maintenance_default_user_name="终末地客户端更新",
+        # 账号页沿用宿主通用 /api/scripts/backup/*，由声明找到备份池。
         restore_pools=tuple(RESTORE_POOLS),
         desktop_session_check=desktop_session_check,
         game_kind=game_kind,
@@ -142,6 +140,7 @@ class Plugin(ScriptAdapterPlugin):
         """托管激活后迁移历史 LaunchMode 取值（Client → MaaEnd/MAS）。"""
         service = getattr(self, "_config_service", None) or config_service()
         await service.initialize(script)
+        service.schedule_preload(script, background_tasks=self.background_tasks)
 
     async def pre_enable(self) -> None:
         """绑定 MaaEnd 用到的关联配置集合，并保管本插件的能力服务。
@@ -170,7 +169,5 @@ class Plugin(ScriptAdapterPlugin):
         """卸下本实例保管的服务引用，避免禁用后仍从模块级入口取到。"""
         global _config_service
         service = getattr(self, "_config_service", None)
-        if service is not None:
-            await service.aclose()
         if _config_service is service:
             _config_service = None

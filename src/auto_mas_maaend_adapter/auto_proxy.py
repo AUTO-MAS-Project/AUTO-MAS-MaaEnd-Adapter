@@ -188,11 +188,21 @@ def _game_launch_command(
     game_arguments: str,
     result_path: Path | None = None,
 ) -> list[str]:
-    """两个切号入口共用同一个独立启动程序。"""
+    """为独立的启动进程传入宿主和插件开发接口的路径。"""
+    import auto_mas_core
+
+    # 宿主在进程内挂载 SDK 源码，新 Python 进程不会继承它的 sys.path。
     command = [
         sys.executable,
         "-X",
         "utf8",
+        "-c",
+        "import runpy, sys\n"
+        "sys.path[:0] = sys.argv[1:3]\n"
+        "sys.argv = sys.argv[3:]\n"
+        "runpy.run_path(sys.argv[0], run_name='__main__')",
+        str(Config.source_path),
+        str(Path(auto_mas_core.__file__).resolve().parents[1]),
         str(Path(__file__).parent / "tools/game_launcher.py"),
         launcher_path,
         game_path,
@@ -527,6 +537,8 @@ class AutoProxyTask(AutoProxyWorker):
         self.color_match_failed_message: str | None = None
         self.retryable = True
         self.update_failed: bool = False
+        self.game_start_attempted = False
+        self.keeps_game_on_finish = False
         self.game_launch_result_path = (
             Path.cwd() / f"data/{self.script_info.script_id}/game-launch.json"
         )
@@ -608,9 +620,13 @@ class AutoProxyTask(AutoProxyWorker):
 
     async def _drain_writes(self) -> None:
         """等待队列消费完；写入自身失败不改变业务结论。"""
-        while self._write_consumer is not None:
-            task = self._write_consumer
-            await asyncio.gather(task, return_exceptions=True)
+        while (task := self._write_consumer) is not None:
+            try:
+                # 停止任务时也要留住已经排队的更新记录，账号收尾会等它们写完。
+                await asyncio.shield(task)
+            finally:
+                if task.done() and self._write_consumer is task:
+                    self._write_consumer = None
 
     async def run_user_scripts_before(self) -> None:
         """执行账号级任务前脚本；每账号一次，先于全部重试。"""
@@ -1772,6 +1788,7 @@ class AutoProxyTask(AutoProxyWorker):
             self.update_failed = True
             if update_seen:
                 point(self, "script_update", state="cancelled", key="mxu")
+            await self._drain_writes()
             if update_log is not None:
                 await update_log.set_state(status="MaaEnd 更新被中止")
             raise
@@ -1853,32 +1870,46 @@ class AutoProxyTask(AutoProxyWorker):
                     kill_game=False,
                 )
                 break
+            # 先写入并判断本阶段任务表，设备信息只在打开模拟器后接入。
+            emulator = self.emulator
+            if emulator is not None and self.task_dict is None:
+                await self.set_maaend(None)
+
             # 三种 PC 启动方式均由 MAS 编排，游戏就绪后再进入账号切换与任务。
             try:
-                if self.emulator is None:
+                if emulator is None:
                     await self.set_maaend(None)
-                    await self._start_game(
-                        preserve_running_game=keep_game_for_login_retry
-                    )
-                else:
-                    logger.info(f"启动模拟器: {game_device_id(self.script_config)}")
-                    point(self, "start_game")
-                    # 设备票由 L2 持有；打开后是否关闭仍按 MaaEnd 原有收尾规则，
-                    # 不在这里登记「账号释放即关模拟器」，否则会改变
-                    # 「最后一个账号完成且不关游戏」时保留模拟器的既有行为。
-                    self.emulator_info = await self.emulator.open(
-                        game_device_id(self.script_config),
-                        "" if cloud_adb else "com.hypergryph.endfield",
-                    )
+                has_runnable_task = self._has_runnable_task(cloud_adb=cloud_adb)
+                if has_runnable_task:
+                    self.game_start_attempted = True
+                    if emulator is None:
+                        await self._start_game(
+                            preserve_running_game=keep_game_for_login_retry
+                        )
+                    else:
+                        logger.info(f"启动模拟器: {game_device_id(self.script_config)}")
+                        point(self, "start_game")
+                        # 设备票由 L2 持有；账号释放时不自动关闭模拟器。
+                        self.emulator_info = await emulator.open(
+                            game_device_id(self.script_config),
+                            "" if cloud_adb else "com.hypergryph.endfield",
+                        )
             except Exception as e:
                 # 启动阶段失败后游戏状态不再可信：清除保留标记，避免下一轮
                 # 启动沿用 preserve_running_game 跳过启动器游戏设置
                 keep_game_for_login_retry = False
                 await self.handle_pre_maaend_error(
-                    "游戏启动失败" if self.emulator is None else "模拟器启动失败",
+                    "游戏启动失败" if emulator is None else "模拟器启动失败",
                     e,
+                    kill_game=self.game_start_attempted,
                 )
                 continue
+            if not has_runnable_task:
+                self.retryable = False
+                await self.handle_pre_maaend_error(
+                    "MaaEnd 没有可执行任务，请检查任务配置", kill_game=False
+                )
+                break
 
             account_id = str(self.cur_user_config.Info.Id).strip()
             if use_mas_account_switch and account_id:
@@ -1943,12 +1974,7 @@ class AutoProxyTask(AutoProxyWorker):
             if self.emulator is not None:
                 await self.set_maaend(self.emulator_info)
 
-            if not any(
-                any(tasks.values())
-                for name, tasks in self.task_dict.items()
-                if not cloud_adb
-                or self.task_name_map.get(name) != _MAAEND_ANDROID_OPEN_GAME_TASK
-            ):
+            if not self._has_runnable_task(cloud_adb=cloud_adb):
                 self.retryable = False
                 await self.handle_pre_maaend_error(
                     "MaaEnd 没有可执行任务，请检查任务配置"
@@ -2051,6 +2077,15 @@ class AutoProxyTask(AutoProxyWorker):
                 if not self.retryable:
                     logger.info("检测到不可恢复的错误，跳过后续重试")
                     i = run_times_limit
+
+    def _has_runnable_task(self, *, cloud_adb: bool) -> bool:
+        """云终末地的启动游戏任务由托管补充，不算业务任务。"""
+        return any(
+            any(tasks.values())
+            for name, tasks in (self.task_dict or {}).items()
+            if not cloud_adb
+            or self.task_name_map.get(name) != _MAAEND_ANDROID_OPEN_GAME_TASK
+        )
 
     async def handle_pre_maaend_error(
         self, error_message: str, e: Exception | None = None, *, kill_game: bool = True
@@ -3504,20 +3539,16 @@ class AutoProxyTask(AutoProxyWorker):
         if not completed:
             # 总时限或异常可能绕过主循环失败分支；必须赶在关游戏/模拟器之前。
             await self._take_failure_shot()
-        script_users = list(self.script_info.users.values())
-        is_last_user = bool(script_users) and script_users[-1].uid == (
-            self.cur_user_item.uid
+        self.keeps_game_on_finish = (
+            self.game_start_attempted
+            and completed
+            and not self.script_config.Game.CloseOnFinish
+            and self.expander.is_last_participating_user(self.cur_user_item)
         )
-        if is_last_user and completed and (not self.script_config.Game.CloseOnFinish):
-            try:
-                logger.info(f"中止 MaaEnd 进程: {self.maaend_exe_path}")
-                await self.maaend_process_manager.kill()
-                await process.kill_process(self.maaend_exe_path)
-            except Exception as e:
-                logger.opt(exception=True).warning(f"中止 MaaEnd 进程失败: {e}")
-        else:
-            # 开发与生产使用一致的停止清理流程，便于实机验证。
-            await self.kill_managed_process(kill_game=True)
+        # 没有尝试启动游戏或模拟器时，仅结束脚本，保留用户已有的会话。
+        await self.kill_managed_process(
+            kill_game=self.game_start_attempted and not self.keeps_game_on_finish
+        )
 
         # 失败日志包：主循环的失败分支已按尝试取证，这里补总时限、异常和更新会话这几条
         # 绕过主循环的收尾。必须排在后置脚本之前，脚本可能改动或删掉 debug/ 里的现场。
@@ -3708,7 +3739,7 @@ class AutoProxyTask(AutoProxyWorker):
         if completed:
             if (
                 self.cur_user_config.Data.ProxyTimes == 0
-                and self.cur_user_config.Info.RemainedDay != -1
+                and self.cur_user_config.Info.RemainedDay > 0
             ):
                 self.cur_user_config.Info.RemainedDay = (
                     self.cur_user_config.Info.RemainedDay - 1

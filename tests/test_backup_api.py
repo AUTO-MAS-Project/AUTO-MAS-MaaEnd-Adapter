@@ -1,9 +1,7 @@
-"""插件自有备份端点：归档、列表、预览、恢复与错误包络。
-
-用 tmp_path 造假的 MaaEnd 安装目录和脚本配置，不依赖 Windows、真机或网络。
-"""
+"""通过用户原有的宿主备份端点验证 MaaEnd 两类备份。"""
 
 import json
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -12,14 +10,21 @@ from fastapi import FastAPI
 from auto_mas_maaend_adapter.config import MaaEndConfig, MaaEndUserConfig
 from auto_mas_maaend_adapter.plugin import Plugin
 
-PREFIX = "/api/plugin/maaend_adapter/backup"
+PREFIX = "/api/scripts/backup"
 
 
 async def _make_host(monkeypatch, tmp_path, tmp_path_factory):
     """装配一个已激活的 MaaEnd 脚本集合，并返回带数据的 HTTP 客户端。"""
 
+    from app.api.scripts.backup import router as backup_router
     from app.config import ConfigCollection
     from app.core import Config
+    from app.core import Plugin as HostPlugin
+    from app.plugin.calls import CallGate
+
+    plugin_id = uuid4()
+    monkeypatch.setitem(HostPlugin.script_types, plugin_id, Plugin.decl)
+    monkeypatch.setitem(HostPlugin._calls, plugin_id, CallGate())
 
     scripts = ConfigCollection.build([MaaEndConfig])
     await scripts.activate()
@@ -48,7 +53,7 @@ async def _make_host(monkeypatch, tmp_path, tmp_path_factory):
     source.write_text('{"Config": {"Name": "before"}}', encoding="utf-8")
 
     app = FastAPI()
-    app.include_router(Plugin.api_router)
+    app.include_router(backup_router, prefix="/api/scripts")
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
