@@ -203,6 +203,14 @@ class MaaEndExpander(UserExpander[MaaEndConfig]):
             not client_executable_path(script_config)
             or not client_executable_path(script_config).exists()
         ):
+            # 与内置实现一致：绑定的游戏目标不是本地客户端时单独提示，别混成“未完成配置”。
+            target = Config.GameConfig.get(game_target_id(script_config))
+            if (
+                client_executable_path(script_config) is None
+                and target is not None
+                and target.info.type != "client"
+            ):
+                return "所绑定的游戏目标不是本地游戏客户端，请在托管配置中更换游戏目标"
             return "未完成游戏配置, 请检查托管配置中的游戏设置！"
 
         if self.controller_protocol == "Win32" and mode == TaskMode.AUTO_PROXY:
