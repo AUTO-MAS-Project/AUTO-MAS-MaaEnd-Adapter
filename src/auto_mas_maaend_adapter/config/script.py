@@ -28,8 +28,11 @@ from auto_mas_core import DesktopSessionRunFields, ScriptEntry
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigGroup,
+    DeclarativeBlock,
     ExportContext,
+    HostBlock,
     NodeState,
+    PluginBlock,
     Virtual,
     collection,
     encrypted,
@@ -60,6 +63,13 @@ MaaEndInstallPath = Annotated[
 
 class MaaEndConfig(ScriptEntry):
     related_config: ClassVar = {}
+    ui_native_session = "config"
+    ui_blocks = (
+        DeclarativeBlock(("Info",)),
+        HostBlock("native_session"),
+        PluginBlock("script", fallback_groups=("Game", "Run", "Update")),
+        HostBlock("game_binding"),
+    )
 
     class GameFields(ConfigGroup):
         LaunchMode: Literal["Client", "Launcher", "MAS", "MaaEnd"] = Field(

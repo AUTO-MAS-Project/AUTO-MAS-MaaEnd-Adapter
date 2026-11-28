@@ -26,7 +26,13 @@ from datetime import datetime
 from typing import Annotated, Literal, Optional
 
 from auto_mas_core import PlanEntry
-from auto_mas_core.host.config import ConfigGroup, Virtual, virtual_field
+from auto_mas_core.host.config import (
+    ConfigGroup,
+    DeclarativeBlock,
+    PluginBlock,
+    Virtual,
+    virtual_field,
+)
 from auto_mas_core.host.models_config_shared import (
     normalize_maaend_plan_key,
     schema_model,
@@ -115,6 +121,18 @@ MaaEndPlanKey = MaaEndProtocolSpacePlanKey | MaaEndAutoEssencePlanKey
 
 
 class MaaEndPlanConfig(WeeklyKeyPlan):
+    ui_blocks = (
+        DeclarativeBlock(("Info",)),
+        PluginBlock(
+            "plan",
+            fallback_groups=(
+                "ALL",
+                *calendar.day_name,
+                *(f"Day{i}" for i in range(1, 32)),
+            ),
+        ),
+    )
+
     class ALLFields(ConfigGroup):
         Key: MaaEndPlanKey = Field(
             description="MaaEnd 计划表专项 key",

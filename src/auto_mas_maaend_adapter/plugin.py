@@ -45,6 +45,8 @@ from .config import MaaEndConfig, MaaEndPlanConfig, MaaEndUserConfig
 from .config_service import MaaEndConfigService
 from .expander import MaaEndExpander
 from .manual_update import EndfieldUpdateExpander
+from .panel_api import PLUGIN_ID
+from .panel_api import router as panel_router
 from .resource_loader import load_maaend_controller_protocol
 from .tools.restore_service import RESTORE_POOLS
 
@@ -52,6 +54,12 @@ from .tools.restore_service import RESTORE_POOLS
 # /api/scripts，避免两边各写一遍前缀。
 router = APIRouter()
 router.include_router(maaend_router, prefix="/api/scripts", tags=["脚本管理"])
+router.include_router(
+    maaend_router, prefix=f"/api/plugin/{PLUGIN_ID}", include_in_schema=False
+)
+router.include_router(
+    panel_router, prefix=f"/api/plugin/{PLUGIN_ID}", include_in_schema=False
+)
 
 
 # 启用期持有的能力服务：端点经 config_service() 取；未启用时明确报错。

@@ -65,6 +65,7 @@ class MaaEndConfigService:
         self._read_display_type = read_display_type
         self._pending_preloads: dict[uuid.UUID, RuntimeMaaEndConfig] = {}
         self._preloading = False
+        self.panel_updates: dict[uuid.UUID, uuid.UUID] = {}
 
     def _get_script(self, script_id: str) -> RuntimeMaaEndConfig:
         script = self._scripts[uuid.UUID(script_id)]
@@ -125,7 +126,9 @@ class MaaEndConfigService:
                         and script.Info.Path == root
                     ):
                         for user in script.users.values():
-                            user.cache_maaend_resource(resource)
+                            user.cache_maaend_resource(
+                                resource, script.Game.ControllerType
+                            )
                 except Exception:
                     logger.opt(exception=True).warning("MaaEnd 资源预加载失败，已跳过")
         finally:
@@ -139,7 +142,7 @@ class MaaEndConfigService:
             raise ValueError("MaaEnd 路径未配置")
         options = await asyncio.to_thread(get_loaded_maaend_options, Path(root_path))
         for user in script.users.values():
-            user.cache_maaend_resource(options)
+            user.cache_maaend_resource(options, script.Game.ControllerType)
         game_path = str(client_executable_path(script) or "").strip()
         if game_path:
             exe_path = Path(game_path)
